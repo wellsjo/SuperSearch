@@ -1,0 +1,3 @@
+something else
+some text
+barabajagal ${foo}
