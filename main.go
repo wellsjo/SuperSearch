@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	// "strings"
-	// "unicode/utf8"
+	"unicode/utf8"
 )
 
 var (
@@ -79,14 +79,17 @@ func readLinesBuffer(file string) error {
 	var s string
 	for {
 		line, err := reader.ReadSlice('\n')
-		// if !utf8.Valid(line) {
-		// 	return nil
-		// }
+		// TODO come up with faster way to do this
+		if !utf8.Valid(line) {
+			return nil
+		}
 		if err != nil {
 			if err == io.EOF {
 				break
 			} else {
-				continue
+				fmt.Println(err, file, lineNo)
+				panic("buff full")
+				// continue
 			}
 		}
 		s += *(processLine(line, &lineNo))
