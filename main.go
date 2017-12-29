@@ -6,10 +6,12 @@ import (
 	"github.com/fatih/color"
 	"io"
 	"log"
+	// "mime"
 	"os"
 	"path/filepath"
 	"regexp"
-	"time"
+	// "strings"
+	// "unicode/utf8"
 )
 
 var (
@@ -40,18 +42,24 @@ func init() {
 }
 
 func main() {
+	if len(searchPattern) == 0 {
+		return
+	}
 	log.Println("searching", searchLocation, "for", searchPattern)
 	numFiles := 0
 	done := make(chan bool)
-	filepath.Walk(searchLocation, func(f string, fi os.FileInfo, err error) error {
+	filepath.Walk(searchLocation, func(path string, fi os.FileInfo, err error) error {
+		if fi == nil {
+			return nil
+		}
 		for _, r := range ignoreRegexps {
-			if r.MatchString(f) {
+			if r.MatchString(path) {
 				return nil
 			}
 		}
-		if !fi.IsDir() {
+		if fi.Mode().IsRegular() {
 			numFiles++
-			go search(f, done)
+			go search(path, done)
 		}
 		return nil
 	})
@@ -71,14 +79,17 @@ func readLinesBuffer(file string) error {
 	var s string
 	for {
 		line, err := reader.ReadSlice('\n')
+		// if !utf8.Valid(line) {
+		// 	return nil
+		// }
 		if err != nil {
 			if err == io.EOF {
 				break
 			} else {
-				panic(err)
+				continue
 			}
 		}
-		s += processLine(line, &lineNo)
+		s += *(processLine(line, &lineNo))
 		lineNo++
 	}
 	if s != "" {
@@ -88,27 +99,24 @@ func readLinesBuffer(file string) error {
 	return nil
 }
 
-func processLine(line []byte, lineNo *int) string {
+func processLine(line []byte, lineNo *int) *string {
 	ixs := searchRegexp.FindAllIndex(line, -1)
-	if ixs == nil {
-		return ""
+	rs := ""
+	if ixs != nil {
+		rs = highlightNumber.Sprint(*lineNo, ":")
+		lastIndex := 0
+		for _, i := range ixs {
+			rs += fmt.Sprint(string(line[lastIndex:i[0]]))
+			rs += highlightMatch.Sprint(string(line[i[0]:i[1]]))
+			lastIndex = i[1]
+		}
+		rs += fmt.Sprint(string(line[lastIndex:]))
 	}
-	var rs = highlightNumber.Sprint(*lineNo, ":")
-	lastIndex := 0
-	for _, i := range ixs {
-		rs += fmt.Sprint(string(line[lastIndex:i[0]]))
-		rs += highlightMatch.Sprint(string(line[i[0]:i[1]]))
-		lastIndex = i[1]
-	}
-	return rs + fmt.Sprint(string(line[lastIndex:]))
+	return &rs
 }
 
 func search(f string, done chan bool) error {
-	// then := time.Now()
 	err := readLinesBuffer(f)
-	// now := time.Now()
-	// dur := now.Sub(then)
-	// log.Println("dur", dur, '\n')
 	done <- true
 	return err
 }

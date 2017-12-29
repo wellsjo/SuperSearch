@@ -1,6 +1,0 @@
-something else
-some text
-barabajagal ${foo}
-other text lololol
-foo doood foooo lol
-beackka df adfkadf 
