@@ -17,6 +17,7 @@ import (
 var (
 	ignoreFilePatterns   = []string{}
 	globalIgnoreFiles    = [...]string{".gitignore_global"}
+	ignoreFiles          = [...]string{".gitignore"}
 	globalIgnorePatterns = []*regexp.Regexp{}
 	concurrency          = 64
 	highlightMatch       = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
@@ -41,6 +42,7 @@ type SuperSearch struct {
 func NewSuperSearch() *SuperSearch {
 	opts := GetOptions()
 	Debug("Searching", opts.location, "for", opts.pattern)
+	Debug("Concurrency", *opts.concurrency)
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.pattern),
 		location:     opts.location,
