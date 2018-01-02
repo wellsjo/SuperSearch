@@ -132,16 +132,17 @@ func (ss *SuperSearch) SearchFile(path string) {
 		lastIndex := 0
 		lineNo := 1
 		output := ""
-		for b := 0; b < reader.Len(); b++ {
-			if reader.At(b) == '\n' {
-				var line = make([]byte, b-lastIndex+1)
-				bytesRead, err := reader.ReadAt(line, int64(lastIndex))
+		buf := make([]byte, reader.Len())
+		bytesRead, err := reader.ReadAt(buf, 0)
+		if err != nil {
+			Debug("bytesRead", bytesRead)
+			panic(err)
+		}
+		for b := 0; b < len(buf); b++ {
+			if buf[b] == '\n' {
+				var line = buf[lastIndex : b+1]
 				ss.processLine(line, &lineNo, &output)
 				lastIndex = b + 1
-				if err != nil {
-					Debug("bytesRead", bytesRead)
-					panic(err)
-				}
 				lineNo++
 			}
 		}
