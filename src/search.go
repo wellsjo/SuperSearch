@@ -1,8 +1,6 @@
 package search
 
 import (
-	// "bufio"
-	"bytes"
 	"fmt"
 	"github.com/fatih/color"
 	"golang.org/x/exp/mmap"
@@ -24,13 +22,6 @@ var (
 	highlightFile        = color.New(color.FgCyan).Add(color.Bold)
 	highlightNumber      = color.New(color.FgGreen).Add(color.Bold)
 )
-
-func init() {
-	home := os.Getenv("HOME")
-	for _, f := range globalIgnoreFiles {
-		globalIgnorePatterns = append(globalIgnorePatterns, getIgnorePatterns(filepath.Join(home, f))...)
-	}
-}
 
 type SuperSearch struct {
 	searchRegexp *regexp.Regexp
@@ -62,6 +53,7 @@ func (ss *SuperSearch) Run() {
 	case mode.IsDir():
 		ss.ScanDir(ss.location)
 	case mode.IsRegular():
+		ss.sem <- true
 		ss.SearchFile(ss.location)
 	}
 	ss.wg.Wait()
@@ -93,56 +85,28 @@ func (ss *SuperSearch) ScanDir(dir string) {
 	ss.wg.Done()
 }
 
-// Loads ignore patterns from a file
-func getIgnorePatterns(file string) []*regexp.Regexp {
-	Debug("loading ignore patterns from", file)
-	reader, err := mmap.Open(file)
-	if err != nil {
-		Debug("Failed to open ignore file", file)
-		panic(err) // TODO remove this
-	}
-	var ignores []*regexp.Regexp
-	for lastIndex, curIndex := 0, 0; curIndex < reader.Len(); curIndex++ {
-		if reader.At(curIndex) == '\n' {
-			var line = make([]byte, curIndex-lastIndex+1)
-			_, err := reader.ReadAt(line, int64(lastIndex))
-			lastIndex = curIndex + 1
-			if err != nil {
-				panic(err) // TODO remove this
-			}
-			// Ignore comments, whitespace
-			line = bytes.TrimSpace(line)
-			if line[0] == '#' || len(line) == 0 {
-				continue
-			}
-			Debug("Adding ignore pattern", string(line))
-			ignores = append(ignores, regexp.MustCompile(string(line)))
-		}
-	}
-	return ignores
-}
-
 func (ss *SuperSearch) SearchFile(path string) {
-	Debug("Searching file", path)
-	reader, err := mmap.Open(path)
+	Debug("Goroutine created. Searching file", path)
+	file, err := mmap.Open(path)
 	if err != nil {
+		Debug("Failed to open file with mmap", path)
 		panic(err)
 	}
-	if !isBin(reader) {
+	if !isBin(file) && file.Len() > 0 {
 		lastIndex := 0
 		lineNo := 1
-		output := ""
-		buf := make([]byte, reader.Len())
-		bytesRead, err := reader.ReadAt(buf, 0)
+		buf := make([]byte, file.Len())
+		bytesRead, err := file.ReadAt(buf, 0)
 		if err != nil {
-			Debug("bytesRead", bytesRead)
+			Debug("Failed to read file", path+".", "Read", bytesRead, "bytes.")
 			panic(err)
 		}
-		for b := 0; b < len(buf); b++ {
-			if buf[b] == '\n' {
-				var line = buf[lastIndex : b+1]
+		output := ""
+		for i := 0; i < len(buf); i++ {
+			if buf[i] == '\n' {
+				var line = buf[lastIndex : i+1]
 				ss.processLine(line, &lineNo, &output)
-				lastIndex = b + 1
+				lastIndex = i + 1
 				lineNo++
 			}
 		}
@@ -150,19 +114,28 @@ func (ss *SuperSearch) SearchFile(path string) {
 			highlightFile.Println(path)
 			fmt.Println(output)
 		}
-		err = reader.Close()
-		if err != nil {
-			panic(err)
-		}
 	}
+	err = file.Close()
+	if err != nil {
+		panic(err)
+	}
+	Debug("Closing file search goroutine", path)
 	<-ss.sem
 	ss.wg.Done()
 }
 
-func isBin(r *mmap.ReaderAt) bool {
-	var bytes = make([]byte, 4)
-	r.ReadAt(bytes, 0)
-	return !utf8.Valid(bytes)
+func isBin(file *mmap.ReaderAt) bool {
+	var offsetLen int64 = int64(file.Len()) / 4
+	var offset int64 = 0
+	var buf = make([]byte, 4)
+	for i := 0; i < 4; i++ {
+		file.ReadAt(buf, offset)
+		if !utf8.Valid(buf) {
+			return true
+		}
+		offset += offsetLen
+	}
+	return false
 }
 
 func (ss *SuperSearch) processLine(line []byte, lineNo *int, output *string) {
@@ -179,45 +152,3 @@ func (ss *SuperSearch) processLine(line []byte, lineNo *int, output *string) {
 		*output += fmt.Sprint(string(line[lastIndex:]))
 	}
 }
-
-// func search(f string, done chan bool) error {
-// func search(f string, done chan bool, run chan bool) {
-// func search(f string, run chan bool) {
-// 	readLines(f)
-// 	<-run
-// }
-
-// Read a file by lines using a buffer
-// func processFileBuffer(file string) error {
-// 	fi, err := os.Open(file)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer fi.Close()
-// 	reader := bufio.NewReader(fi)
-// 	lineNo := 1
-// 	var s string
-// 	for {
-// 		line, err := reader.ReadSlice('\n')
-// 		// TODO come up with faster way to do this
-// 		// if !utf8.Valid(line) {
-// 		// 	return nil
-// 		// }
-// 		if err != nil {
-// 			if err == io.EOF {
-// 				break
-// 			} else {
-// 				fmt.Println(err, file, lineNo)
-// 				panic("buff full")
-// 				// continue
-// 			}
-// 		}
-// 		s += *(processLine(line, &lineNo))
-// 		lineNo++
-// 	}
-// 	if s != "" {
-// 		highlightFile.Println(file)
-// 		fmt.Print(s)
-// 	}
-// return nil
-// }
