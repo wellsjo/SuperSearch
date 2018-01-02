@@ -101,18 +101,36 @@ func (ss *SuperSearch) SearchFile(path string) {
 			Debug("Failed to read file", path+".", "Read", bytesRead, "bytes.")
 			panic(err)
 		}
-		output := ""
+		filePrinted := false
 		for i := 0; i < len(buf); i++ {
 			if buf[i] == '\n' {
-				var line = buf[lastIndex : i+1]
-				ss.processLine(line, &lineNo, &output)
+				var line = buf[lastIndex:i]
+				// ss.processLine(line, &lineNo)
+				ixs := ss.searchRegexp.FindAllIndex(line, -1)
+				var output string
+				if ixs != nil {
+					if !filePrinted {
+						highlightFile.Println(path)
+						filePrinted = true
+					}
+					output = highlightNumber.Sprint(lineNo, ":")
+					lastIndex := 0
+					for _, i := range ixs {
+						output += fmt.Sprint(string(line[lastIndex:i[0]]))
+						output += highlightMatch.Sprint(string(line[i[0]:i[1]]))
+						lastIndex = i[1]
+					}
+					output += fmt.Sprintln(string(line[lastIndex:]))
+				}
+				if len(output) > 0 {
+					fmt.Print(output)
+				}
 				lastIndex = i + 1
 				lineNo++
 			}
 		}
-		if len(output) > 0 {
-			highlightFile.Println(path)
-			fmt.Println(output)
+		if filePrinted {
+			fmt.Println()
 		}
 	}
 	err = file.Close()
@@ -138,17 +156,6 @@ func isBin(file *mmap.ReaderAt) bool {
 	return false
 }
 
-func (ss *SuperSearch) processLine(line []byte, lineNo *int, output *string) {
+func (ss *SuperSearch) processLine(line []byte, lineNo *int) {
 	// TODO maybe move this out to processFile
-	ixs := ss.searchRegexp.FindAllIndex(line, -1)
-	if ixs != nil {
-		*output += highlightNumber.Sprint(*lineNo, ":")
-		lastIndex := 0
-		for _, i := range ixs {
-			*output += fmt.Sprint(string(line[lastIndex:i[0]]))
-			*output += highlightMatch.Sprint(string(line[i[0]:i[1]]))
-			lastIndex = i[1]
-		}
-		*output += fmt.Sprint(string(line[lastIndex:]))
-	}
 }
