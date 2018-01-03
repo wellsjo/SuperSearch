@@ -105,7 +105,6 @@ func (ss *SuperSearch) SearchFile(path string) {
 		for i := 0; i < len(buf); i++ {
 			if buf[i] == '\n' {
 				var line = buf[lastIndex:i]
-				// ss.processLine(line, &lineNo)
 				ixs := ss.searchRegexp.FindAllIndex(line, -1)
 				var output string
 				if ixs != nil {
@@ -154,8 +153,4 @@ func isBin(file *mmap.ReaderAt) bool {
 		offset += offsetLen
 	}
 	return false
-}
-
-func (ss *SuperSearch) processLine(line []byte, lineNo *int) {
-	// TODO maybe move this out to processFile
 }
