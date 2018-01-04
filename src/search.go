@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"unicode/utf8"
 )
@@ -23,26 +24,81 @@ var (
 	highlightNumber      = color.New(color.FgGreen).Add(color.Bold)
 )
 
+type PrintData struct {
+	file string
+	data string
+}
+
 type SuperSearch struct {
 	searchRegexp *regexp.Regexp
 	location     string
+	print        chan *PrintData
+	finished     chan string
+	done         chan bool
 	sem          chan bool
 	wg           *sync.WaitGroup
 }
 
-func NewSuperSearch() *SuperSearch {
+func NewSuperSearch() {
 	opts := GetOptions()
 	Debug("Searching", opts.location, "for", opts.pattern)
 	Debug("Concurrency", *opts.concurrency)
-	return &SuperSearch{
+	ss := &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.pattern),
 		location:     opts.location,
+		print:        make(chan *PrintData),
+		finished:     make(chan string),
+		done:         make(chan bool),
 		sem:          make(chan bool, *opts.concurrency),
 		wg:           new(sync.WaitGroup),
 	}
+	go ss.runPrinter()
+	ss.run()
+	ss.wg.Wait()
+	ss.wg.Add(1)
+	ss.done <- true
+	ss.wg.Wait()
 }
 
-func (ss *SuperSearch) Run() {
+func (ss *SuperSearch) runPrinter() {
+	var dataToPrint = make(map[string][]string)
+	var finishedFiles = make(map[string]bool)
+	var canFinish bool = false
+	var curFile string
+OUTER:
+	for {
+		select {
+		case s := <-ss.print:
+			dataToPrint[s.file] = append(dataToPrint[s.file], s.data)
+		case finished := <-ss.finished:
+			finishedFiles[finished] = true
+		case <-ss.done:
+			canFinish = true
+		default:
+			if len(dataToPrint[curFile]) > 0 {
+				fmt.Print(strings.Join(dataToPrint[curFile], ""))
+				delete(dataToPrint, curFile)
+			}
+			if finishedFiles[curFile] {
+				delete(finishedFiles, curFile)
+				fmt.Println()
+				curFile = ""
+			} else if canFinish && len(dataToPrint) == 0 {
+				break OUTER
+			}
+			if curFile == "" {
+				for i := range dataToPrint {
+					curFile = i
+					highlightFile.Println(curFile)
+					break
+				}
+			}
+		}
+	}
+	ss.wg.Done()
+}
+
+func (ss *SuperSearch) run() {
 	fi, err := os.Stat(ss.location)
 	if err != nil {
 		fmt.Println(err)
@@ -56,7 +112,6 @@ func (ss *SuperSearch) Run() {
 		ss.sem <- true
 		ss.SearchFile(ss.location)
 	}
-	ss.wg.Wait()
 }
 
 func (ss *SuperSearch) ScanDir(dir string) {
@@ -101,17 +156,12 @@ func (ss *SuperSearch) SearchFile(path string) {
 			Debug("Failed to read file", path+".", "Read", bytesRead, "bytes.")
 			panic(err)
 		}
-		filePrinted := false
 		for i := 0; i < len(buf); i++ {
 			if buf[i] == '\n' {
 				var line = buf[lastIndex:i]
 				ixs := ss.searchRegexp.FindAllIndex(line, -1)
 				var output string
 				if ixs != nil {
-					if !filePrinted {
-						highlightFile.Println(path)
-						filePrinted = true
-					}
 					output = highlightNumber.Sprint(lineNo, ":")
 					lastIndex := 0
 					for _, i := range ixs {
@@ -122,14 +172,15 @@ func (ss *SuperSearch) SearchFile(path string) {
 					output += fmt.Sprintln(string(line[lastIndex:]))
 				}
 				if len(output) > 0 {
-					fmt.Print(output)
+					p := PrintData{
+						file: path,
+						data: output,
+					}
+					ss.print <- &p
 				}
 				lastIndex = i + 1
 				lineNo++
 			}
-		}
-		if filePrinted {
-			fmt.Println()
 		}
 	}
 	err = file.Close()
@@ -137,6 +188,7 @@ func (ss *SuperSearch) SearchFile(path string) {
 		panic(err)
 	}
 	Debug("Closing file search goroutine", path)
+	ss.finished <- path
 	<-ss.sem
 	ss.wg.Done()
 }
