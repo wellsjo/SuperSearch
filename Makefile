@@ -1,6 +1,6 @@
 .PHONY: all
 
-all: search install
+all: search
 
 search:
 	go build -o bin/ss main.go
