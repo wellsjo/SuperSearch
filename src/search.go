@@ -40,16 +40,15 @@ type SuperSearch struct {
 }
 
 func NewSuperSearch() {
-	opts := GetOptions()
-	Debug("Searching", opts.location, "for", opts.pattern)
-	Debug("Concurrency", *opts.concurrency)
+	Debug("Searching", Opts.location, "for", Opts.pattern)
+	Debug("Concurrency", *Opts.concurrency)
 	ss := &SuperSearch{
-		searchRegexp: regexp.MustCompile(opts.pattern),
-		location:     opts.location,
+		searchRegexp: regexp.MustCompile(Opts.pattern),
+		location:     Opts.location,
 		print:        make(chan *PrintData),
 		finished:     make(chan string),
 		done:         make(chan bool),
-		sem:          make(chan bool, *opts.concurrency),
+		sem:          make(chan bool, *Opts.concurrency),
 		wg:           new(sync.WaitGroup),
 	}
 	go ss.runPrinter()
@@ -107,6 +106,7 @@ func (ss *SuperSearch) run() {
 	ss.wg.Add(1)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
+		// Load global ignore patterns
 		ss.ScanDir(ss.location)
 	case mode.IsRegular():
 		ss.sem <- true

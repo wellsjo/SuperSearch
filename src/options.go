@@ -12,7 +12,7 @@ type Options struct {
 	debug       *bool
 }
 
-var opts *Options
+var Opts *Options
 
 func init() {
 	debug := flag.Bool("D", false, "Debug mode.")
@@ -36,14 +36,10 @@ func init() {
 		flag.PrintDefaults()
 		return
 	}
-	opts = &Options{
+	Opts = &Options{
 		pattern,
 		location,
 		concurrency,
 		debug,
 	}
-}
-
-func GetOptions() *Options {
-	return opts
 }

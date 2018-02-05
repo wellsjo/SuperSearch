@@ -5,8 +5,7 @@ import (
 )
 
 func Debug(s ...interface{}) {
-	opts := GetOptions()
-	if *opts.debug {
+	if *Opts.debug {
 		log.Println(s...)
 	}
 }
