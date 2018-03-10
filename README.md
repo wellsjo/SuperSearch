@@ -15,3 +15,6 @@ make install
 ```
 ss [text or regex]
 ```
+
+## TODO
+- Implement recursive directory gitignore matching (`**`)

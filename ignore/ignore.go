@@ -1,9 +1,9 @@
-package gitignore
+package ignore
 
 import (
 	"bytes"
-	// "log"
-	"path/filepath"
+	"log"
+	// "path/filepath"
 	"regexp"
 	"strings"
 
@@ -16,14 +16,13 @@ const functionChars string = "!*?[\\"
 const regexChars string = "$(*+.?[^{|"
 
 type GitIgnore struct {
-	extensions map[string]bool
-	include    []string
-	regexes    []string
+	ignorePatterns []string
 }
 
 func NewGitIgnore() *GitIgnore {
 	return &GitIgnore{
-		extensions: make(map[string]bool),
+		ignorePatterns: make([]string, 0),
+		// extensions: make(map[string]bool),
 	}
 }
 
@@ -54,30 +53,31 @@ func NewGitIgnoreFromFile(file string) []*regexp.Regexp {
 }
 
 func (ig *GitIgnore) AddIgnorePattern(pattern string) {
-	if isFnMatch {
-		if pattern[0] == '*' && pattern[1] == '.' && !isFnMatch(pattern[2:]) {
-			ig.extensions[pattern[2:]] = true
-		} else {
-			ig.regexes = append(ig.regexes, pattern)
-		}
-	}
+	ig.ignorePatterns = append(ig.ignorePatterns, pattern)
 }
 
-func (ig *GitIgnore) Test(filename string) bool {
-	if ig.extensions[extension(filename)] {
-		return true
-	} else {
-		for r := range ig.regexes {
-			matched, err := filepath.Match(r, filename)
-			if err != nil {
-				panic(err) // TODO change this
-			}
-			if mached {
-				return true
-			}
+func (ig *GitIgnore) Match(filename string) bool {
+	for _, p := range ig.ignorePatterns {
+		log.Println("testing", filename, "against", p)
+		if fnmatch.Match(p, filename, 0) {
+			return true
 		}
 	}
 	return false
+	// if ig.extensions[extension(filename)] {
+	// 	return true
+	// } else {
+	// 	for r := range ig.regexes {
+	// 		matched, err := filepath.Match(r, filename)
+	// 		if err != nil {
+	// 			panic(err) // TODO change this
+	// 		}
+	// 		if mached {
+	// 			return true
+	// 		}
+	// 	}
+	// }
+	// return false
 }
 
 // Return extension of filename: foo.js -> js
