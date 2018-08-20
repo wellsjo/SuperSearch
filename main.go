@@ -5,5 +5,6 @@ import (
 )
 
 func main() {
-	search.NewSuperSearch()
+	ss := search.New()
+	ss.Run()
 }

@@ -6,11 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
+	"runtime"
 	"sync"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"github.com/juju/errors"
 	"golang.org/x/exp/mmap"
 )
 
@@ -19,10 +20,13 @@ var (
 	globalIgnoreFiles    = [...]string{".gitignore_global"}
 	ignoreFiles          = [...]string{".gitignore"}
 	globalIgnorePatterns = []*regexp.Regexp{}
-	concurrency          = 64
-	highlightMatch       = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
-	highlightFile        = color.New(color.FgCyan).Add(color.Bold)
-	highlightNumber      = color.New(color.FgGreen).Add(color.Bold)
+
+	// Set concurrency to # cores
+	concurrency = runtime.NumCPU()
+
+	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
+	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
+	highlightNumber = color.New(color.FgGreen).Add(color.Bold)
 )
 
 type PrintData struct {
@@ -32,129 +36,143 @@ type PrintData struct {
 
 type SuperSearch struct {
 	searchRegexp *regexp.Regexp
-	location     string
-	print        chan *PrintData
-	finished     chan string
-	done         chan bool
-	sem          chan bool
-	wg           *sync.WaitGroup
+	location     *string
+	searchFiles  chan *string
+	printData    chan *PrintData
+	// filesFinished chan *string
+
+	// Signal channels
+	done chan struct{}
+
+	// Global wait group
+	wg *sync.WaitGroup
+
+	err chan error
 }
 
-func NewSuperSearch() *SuperSearch {
+func New() *SuperSearch {
 	Debug("Searching", Opts.location, "for", Opts.pattern)
 	Debug("Concurrency", *Opts.concurrency)
-	ss := &SuperSearch{
+	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(Opts.pattern),
-		location:     Opts.location,
-		print:        make(chan *PrintData),
-		finished:     make(chan string),
-		done:         make(chan bool),
-		sem:          make(chan bool, *Opts.concurrency),
-		wg:           new(sync.WaitGroup),
+		location:     &Opts.location,
+		printData:    make(chan *PrintData),
+
+		// Allow enough files in the buffer so that there will always be plenty
+		// for the worker threads
+		searchFiles: make(chan *string, *Opts.concurrency*2),
+
+		// filesFinished: make(chan *string),
+		done: make(chan struct{}),
+
+		wg:  new(sync.WaitGroup),
+		err: make(chan error),
 	}
-	go ss.printer()
-	ss.run()
-	ss.wg.Wait()
-	ss.wg.Add(1)
-	ss.done <- true
-	ss.wg.Wait()
-	return ss
 }
 
-func (ss *SuperSearch) printer() {
-	var dataToPrint = make(map[string][]string)
-	var finishedFiles = make(map[string]bool)
-	var canFinish bool = false
-	var curFile string
-OUTER:
-	for {
-		select {
-		case s := <-ss.print:
-			dataToPrint[s.file] = append(dataToPrint[s.file], s.data)
-		case finished := <-ss.finished:
-			finishedFiles[finished] = true
-		case <-ss.done:
-			canFinish = true
-		default:
-			if len(dataToPrint[curFile]) > 0 {
-				fmt.Print(strings.Join(dataToPrint[curFile], ""))
-				delete(dataToPrint, curFile)
-			}
-			if finishedFiles[curFile] {
-				delete(finishedFiles, curFile)
-				fmt.Println()
-				curFile = ""
-			}
-			if curFile == "" {
-				for i := range dataToPrint {
-					curFile = i
-					highlightFile.Println(curFile)
-					break
-				}
-			}
-		}
+func (ss *SuperSearch) Run() {
+	for i := 0; i < *Opts.concurrency; i++ {
+		go func(i int) {
+			ss.worker(&i)
+		}(i)
 	}
-	ss.wg.Done()
+	ss.findFiles()
 }
 
-func (ss *SuperSearch) run() {
-	fi, err := os.Stat(ss.location)
+// func (ss *SuperSearch) printer() {
+// 	var dataToPrint = make(map[string][]string)
+// 	var finishedFiles = make(map[*string]bool)
+// 	var curFile string
+// printLoop:
+// 	for {
+// 		select {
+// 		case pd := <-ss.printData:
+// 			dataToPrint[pd.file] = append(dataToPrint[pd.file], pd.data)
+// 		case finished := <-ss.filesFinished:
+// 			finishedFiles[finished] = true
+// 		case <-ss.done:
+// 			break printLoop
+// 		default:
+// 			if len(dataToPrint[curFile]) > 0 {
+// 				fmt.Print(strings.Join(dataToPrint[curFile], ""))
+// 				delete(dataToPrint, curFile)
+// 			}
+// 			if finishedFiles[curFile] {
+// 				delete(finishedFiles, curFile)
+// 				fmt.Println()
+// 				curFile = ""
+// 			}
+// 			if curFile == "" {
+// 				for i := range dataToPrint {
+// 					curFile = i
+// 					highlightFile.Println(curFile)
+// 					break
+// 				}
+// 			}
+// 		}
+// 	}
+// 	ss.wg.Done()
+// }
+
+func (ss *SuperSearch) findFiles() {
+	fi, err := os.Stat(*ss.location)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	ss.wg.Add(1)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		// Load global ignore patterns
-		ss.ScanDir(ss.location)
+		ss.err <- ss.ScanDir(ss.location)
 	case mode.IsRegular():
-		ss.sem <- true
-		ss.SearchFile(ss.location)
+		ss.searchFiles <- ss.location
 	}
 }
 
-func (ss *SuperSearch) ScanDir(dir string) {
-	Debug("Scanning directory", dir)
-	dirInfo, err := ioutil.ReadDir(dir)
+func (ss *SuperSearch) ScanDir(dir *string) error {
+	Debug("Scanning directory %v", dir)
+	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
-		panic(err)
+		return errors.Annotate(err, "io error: failed to read directory")
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
 			continue
 		}
-		path := filepath.Join(dir, fi.Name())
+		path := filepath.Join(*dir, fi.Name())
 		if fi.IsDir() {
-			ss.wg.Add(1)
-			go ss.ScanDir(path)
+			ss.ScanDir(&path)
 		} else if fi.Mode().IsRegular() {
-			ss.wg.Add(1)
-			go func() {
-				ss.sem <- true
-				ss.SearchFile(path)
-			}()
+			ss.searchFiles <- &path
+			Debug("Queuing %v", path)
 		}
 	}
-	Debug("Goroutine ScanDir", dir, "finished")
-	ss.wg.Done()
+	Debug("Scan dir finished %v", dir)
+	return nil
 }
 
-func (ss *SuperSearch) SearchFile(path string) {
-	Debug("Goroutine created. Searching file", path)
-	file, err := mmap.Open(path)
-	if err != nil {
-		Debug("Failed to open file with mmap", path)
-		panic(err)
+func (ss *SuperSearch) worker(num *int) {
+	Debug("Started worker %d", *num)
+	for {
+		select {
+		case next := <-ss.searchFiles:
+			ss.searchFile(next)
+		}
 	}
+}
+
+func (ss *SuperSearch) searchFile(path *string) {
+	file, err := mmap.Open(*path)
+	if err != nil {
+		Fail("Failed to open file with mmap", path)
+	}
+	defer file.Close()
 	if !isBin(file) && file.Len() > 0 {
 		lastIndex := 0
 		lineNo := 1
 		buf := make([]byte, file.Len())
 		bytesRead, err := file.ReadAt(buf, 0)
 		if err != nil {
-			Debug("Failed to read file", path+".", "Read", bytesRead, "bytes.")
-			panic(err)
+			Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
 		}
 		for i := 0; i < len(buf); i++ {
 			if buf[i] == '\n' {
@@ -172,8 +190,8 @@ func (ss *SuperSearch) SearchFile(path string) {
 					output += fmt.Sprintln(string(line[lastIndex:]))
 				}
 				if len(output) > 0 {
-					ss.print <- &PrintData{
-						file: path,
+					ss.printData <- &PrintData{
+						file: *path,
 						data: output,
 					}
 				}
@@ -182,14 +200,8 @@ func (ss *SuperSearch) SearchFile(path string) {
 			}
 		}
 	}
-	err = file.Close()
-	if err != nil {
-		panic(err)
-	}
 	Debug("Closing file search goroutine", path)
-	ss.finished <- path
-	<-ss.sem
-	ss.wg.Done()
+	// ss.filesFinished <- path
 }
 
 func isBin(file *mmap.ReaderAt) bool {

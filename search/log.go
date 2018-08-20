@@ -2,10 +2,16 @@ package search
 
 import (
 	"log"
+	"os"
 )
 
-func Debug(s ...interface{}) {
+func Debug(a string, s ...interface{}) {
 	if *Opts.debug {
-		log.Println(s...)
+		log.Printf(a, s...)
 	}
+}
+
+func Fail(s ...interface{}) {
+	log.Println(s...)
+	os.Exit(1)
 }
