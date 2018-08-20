@@ -35,11 +35,6 @@ type Options struct {
 	Debug    bool
 }
 
-// type PrintData struct {
-// 	file string
-// 	data string
-// }
-
 type SuperSearch struct {
 	opts *Options
 
@@ -163,6 +158,7 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	}
 }
 
+// Cheap (at the expense of being janky) way to determine if a file is binary
 func isBin(file *mmap.ReaderAt) bool {
 	var offsetLen int64 = int64(file.Len()) / 4
 	var offset int64 = 0
