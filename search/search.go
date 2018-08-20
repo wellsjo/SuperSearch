@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
-	"github.com/juju/errors"
 	"golang.org/x/exp/mmap"
 )
 
@@ -37,12 +36,12 @@ type PrintData struct {
 type SuperSearch struct {
 	searchRegexp *regexp.Regexp
 	location     *string
-	searchFiles  chan *string
+	searchPaths  chan *string
 	printData    chan *PrintData
 	// filesFinished chan *string
 
 	// Signal channels
-	done chan struct{}
+	// done chan struct{}
 
 	// Global wait group
 	wg *sync.WaitGroup
@@ -60,10 +59,10 @@ func New() *SuperSearch {
 
 		// Allow enough files in the buffer so that there will always be plenty
 		// for the worker threads
-		searchFiles: make(chan *string, *Opts.concurrency*2),
+		searchPaths: make(chan *string, 1024),
 
 		// filesFinished: make(chan *string),
-		done: make(chan struct{}),
+		// done: make(chan struct{}),
 
 		wg:  new(sync.WaitGroup),
 		err: make(chan error),
@@ -71,12 +70,15 @@ func New() *SuperSearch {
 }
 
 func (ss *SuperSearch) Run() {
+	ss.wg.Add(*Opts.concurrency)
 	for i := 0; i < *Opts.concurrency; i++ {
 		go func(i int) {
 			ss.worker(&i)
 		}(i)
 	}
 	ss.findFiles()
+	close(ss.searchPaths)
+	ss.wg.Wait()
 }
 
 // func (ss *SuperSearch) printer() {
@@ -117,22 +119,21 @@ func (ss *SuperSearch) Run() {
 func (ss *SuperSearch) findFiles() {
 	fi, err := os.Stat(*ss.location)
 	if err != nil {
-		fmt.Println(err)
-		return
+		Fail(err)
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.err <- ss.ScanDir(ss.location)
+		ss.scanDir(ss.location)
 	case mode.IsRegular():
-		ss.searchFiles <- ss.location
+		ss.searchPaths <- ss.location
 	}
 }
 
-func (ss *SuperSearch) ScanDir(dir *string) error {
+func (ss *SuperSearch) scanDir(dir *string) {
 	Debug("Scanning directory %v", dir)
 	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
-		return errors.Annotate(err, "io error: failed to read directory")
+		Fail("io error: failed to read directory. %v", err)
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
@@ -140,24 +141,21 @@ func (ss *SuperSearch) ScanDir(dir *string) error {
 		}
 		path := filepath.Join(*dir, fi.Name())
 		if fi.IsDir() {
-			ss.ScanDir(&path)
+			ss.scanDir(&path)
 		} else if fi.Mode().IsRegular() {
-			ss.searchFiles <- &path
+			ss.searchPaths <- &path
 			Debug("Queuing %v", path)
 		}
 	}
 	Debug("Scan dir finished %v", dir)
-	return nil
 }
 
 func (ss *SuperSearch) worker(num *int) {
 	Debug("Started worker %d", *num)
-	for {
-		select {
-		case next := <-ss.searchFiles:
-			ss.searchFile(next)
-		}
+	for path := range ss.searchPaths {
+		ss.searchFile(path)
 	}
+	ss.wg.Done()
 }
 
 func (ss *SuperSearch) searchFile(path *string) {
