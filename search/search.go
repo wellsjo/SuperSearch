@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -28,53 +29,44 @@ var (
 	highlightNumber = color.New(color.FgGreen).Add(color.Bold)
 )
 
-type PrintData struct {
-	file string
-	data string
+type Options struct {
+	Pattern  string
+	Location string
+	Debug    bool
 }
 
-type SuperSearch struct {
-	searchRegexp *regexp.Regexp
-	location     *string
-	searchPaths  chan *string
-	printData    chan *PrintData
-	// filesFinished chan *string
+// type PrintData struct {
+// 	file string
+// 	data string
+// }
 
-	// Signal channels
-	// done chan struct{}
+type SuperSearch struct {
+	*Options
+	searchRegexp *regexp.Regexp
+	searchPaths  chan *string
 
 	// Global wait group
 	wg *sync.WaitGroup
-
-	err chan error
 }
 
-func New() *SuperSearch {
-	Debug("Searching", Opts.location, "for", Opts.pattern)
-	Debug("Concurrency", *Opts.concurrency)
+func New(opts *Options) *SuperSearch {
+	Debug("Searching %v for %v", opts.Location, opts.Pattern)
+	Debug("Concurrency", concurrency)
 	return &SuperSearch{
-		searchRegexp: regexp.MustCompile(Opts.pattern),
-		location:     &Opts.location,
-		printData:    make(chan *PrintData),
+		searchRegexp: regexp.MustCompile(opts.Pattern),
 
 		// Allow enough files in the buffer so that there will always be plenty
 		// for the worker threads
 		searchPaths: make(chan *string, 1024),
 
-		// filesFinished: make(chan *string),
-		// done: make(chan struct{}),
-
-		wg:  new(sync.WaitGroup),
-		err: make(chan error),
+		wg: new(sync.WaitGroup),
 	}
 }
 
 func (ss *SuperSearch) Run() {
-	ss.wg.Add(*Opts.concurrency)
-	for i := 0; i < *Opts.concurrency; i++ {
-		go func(i int) {
-			ss.worker(&i)
-		}(i)
+	ss.wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go ss.worker()
 	}
 	ss.findFiles()
 	close(ss.searchPaths)
@@ -117,15 +109,15 @@ func (ss *SuperSearch) Run() {
 // }
 
 func (ss *SuperSearch) findFiles() {
-	fi, err := os.Stat(*ss.location)
+	fi, err := os.Stat(ss.Location)
 	if err != nil {
 		Fail(err)
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.scanDir(ss.location)
+		ss.scanDir(&ss.Location)
 	case mode.IsRegular():
-		ss.searchPaths <- ss.location
+		ss.searchPaths <- &ss.Location
 	}
 }
 
@@ -150,8 +142,8 @@ func (ss *SuperSearch) scanDir(dir *string) {
 	Debug("Scan dir finished %v", dir)
 }
 
-func (ss *SuperSearch) worker(num *int) {
-	Debug("Started worker %d", *num)
+func (ss *SuperSearch) worker() {
+	Debug("Started worker")
 	for path := range ss.searchPaths {
 		ss.searchFile(path)
 	}
@@ -164,42 +156,46 @@ func (ss *SuperSearch) searchFile(path *string) {
 		Fail("Failed to open file with mmap", path)
 	}
 	defer file.Close()
-	if !isBin(file) && file.Len() > 0 {
-		lastIndex := 0
-		lineNo := 1
-		buf := make([]byte, file.Len())
-		bytesRead, err := file.ReadAt(buf, 0)
-		if err != nil {
-			Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
-		}
-		for i := 0; i < len(buf); i++ {
-			if buf[i] == '\n' {
-				var line = buf[lastIndex:i]
-				ixs := ss.searchRegexp.FindAllIndex(line, -1)
-				var output string
-				if ixs != nil {
-					output = highlightNumber.Sprint(lineNo, ":")
-					lastIndex := 0
-					for _, i := range ixs {
-						output += fmt.Sprint(string(line[lastIndex:i[0]]))
-						output += highlightMatch.Sprint(string(line[i[0]:i[1]]))
-						lastIndex = i[1]
-					}
-					output += fmt.Sprintln(string(line[lastIndex:]))
+
+	if isBin(file) || file.Len() == 0 {
+		return
+	}
+
+	lastIndex := 0
+	lineNo := 1
+	buf := make([]byte, file.Len())
+	bytesRead, err := file.ReadAt(buf, 0)
+	if err != nil {
+		Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
+	}
+
+	var output strings.Builder
+
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == '\n' {
+			var line = buf[lastIndex:i]
+			ixs := ss.searchRegexp.FindAllIndex(line, -1)
+
+			if ixs != nil {
+				output.Write([]byte(highlightNumber.Sprint(lineNo, ":")))
+				lastIndex := 0
+
+				for _, i := range ixs {
+					output.Write([]byte(fmt.Sprint(string(line[lastIndex:i[0]]))))
+					output.Write([]byte(highlightMatch.Sprint(string(line[i[0]:i[1]]))))
+					lastIndex = i[1]
 				}
-				if len(output) > 0 {
-					ss.printData <- &PrintData{
-						file: *path,
-						data: output,
-					}
-				}
-				lastIndex = i + 1
-				lineNo++
+				output.Write([]byte(fmt.Sprintln(string(line[lastIndex:]))))
 			}
+
+			lastIndex = i + 1
+			lineNo++
 		}
 	}
-	Debug("Closing file search goroutine", path)
-	// ss.filesFinished <- path
+
+	if output.Len() > 0 {
+		fmt.Print(output.String())
+	}
 }
 
 func isBin(file *mmap.ReaderAt) bool {
