@@ -41,7 +41,8 @@ type Options struct {
 // }
 
 type SuperSearch struct {
-	*Options
+	opts *Options
+
 	searchRegexp *regexp.Regexp
 	searchPaths  chan *string
 
@@ -53,6 +54,7 @@ func New(opts *Options) *SuperSearch {
 	Debug("Searching %v for %v", opts.Location, opts.Pattern)
 	Debug("Concurrency", concurrency)
 	return &SuperSearch{
+		opts:         opts,
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 
 		// Allow enough files in the buffer so that there will always be plenty
@@ -73,51 +75,16 @@ func (ss *SuperSearch) Run() {
 	ss.wg.Wait()
 }
 
-// func (ss *SuperSearch) printer() {
-// 	var dataToPrint = make(map[string][]string)
-// 	var finishedFiles = make(map[*string]bool)
-// 	var curFile string
-// printLoop:
-// 	for {
-// 		select {
-// 		case pd := <-ss.printData:
-// 			dataToPrint[pd.file] = append(dataToPrint[pd.file], pd.data)
-// 		case finished := <-ss.filesFinished:
-// 			finishedFiles[finished] = true
-// 		case <-ss.done:
-// 			break printLoop
-// 		default:
-// 			if len(dataToPrint[curFile]) > 0 {
-// 				fmt.Print(strings.Join(dataToPrint[curFile], ""))
-// 				delete(dataToPrint, curFile)
-// 			}
-// 			if finishedFiles[curFile] {
-// 				delete(finishedFiles, curFile)
-// 				fmt.Println()
-// 				curFile = ""
-// 			}
-// 			if curFile == "" {
-// 				for i := range dataToPrint {
-// 					curFile = i
-// 					highlightFile.Println(curFile)
-// 					break
-// 				}
-// 			}
-// 		}
-// 	}
-// 	ss.wg.Done()
-// }
-
 func (ss *SuperSearch) findFiles() {
-	fi, err := os.Stat(ss.Location)
+	fi, err := os.Stat(ss.opts.Location)
 	if err != nil {
 		Fail(err)
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.scanDir(&ss.Location)
+		ss.scanDir(&ss.opts.Location)
 	case mode.IsRegular():
-		ss.searchPaths <- &ss.Location
+		ss.searchPaths <- &ss.opts.Location
 	}
 }
 
@@ -144,13 +111,17 @@ func (ss *SuperSearch) scanDir(dir *string) {
 
 func (ss *SuperSearch) worker() {
 	Debug("Started worker")
+	var output *strings.Builder
 	for path := range ss.searchPaths {
-		ss.searchFile(path)
+		ss.searchFile(path, output)
+	}
+	if output.Len() > 0 {
+		fmt.Print(output.String())
 	}
 	ss.wg.Done()
 }
 
-func (ss *SuperSearch) searchFile(path *string) {
+func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	file, err := mmap.Open(*path)
 	if err != nil {
 		Fail("Failed to open file with mmap", path)
@@ -168,8 +139,6 @@ func (ss *SuperSearch) searchFile(path *string) {
 	if err != nil {
 		Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
 	}
-
-	var output strings.Builder
 
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
@@ -191,10 +160,6 @@ func (ss *SuperSearch) searchFile(path *string) {
 			lastIndex = i + 1
 			lineNo++
 		}
-	}
-
-	if output.Len() > 0 {
-		fmt.Print(output.String())
 	}
 }
 
