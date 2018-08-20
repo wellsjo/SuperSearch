@@ -1,13 +1,11 @@
-package ignore
+package search
 
 import (
 	"bytes"
-	"log"
-	// "path/filepath"
+	"path/filepath"
 	"regexp"
 	"strings"
 
-	"github.com/danwakefield/fnmatch"
 	"golang.org/x/exp/mmap"
 )
 
@@ -22,7 +20,6 @@ type GitIgnore struct {
 func NewGitIgnore() *GitIgnore {
 	return &GitIgnore{
 		ignorePatterns: make([]string, 0),
-		// extensions: make(map[string]bool),
 	}
 }
 
@@ -58,26 +55,12 @@ func (ig *GitIgnore) AddIgnorePattern(pattern string) {
 
 func (ig *GitIgnore) Match(filename string) bool {
 	for _, p := range ig.ignorePatterns {
-		log.Println("testing", filename, "against", p)
-		if fnmatch.Match(p, filename, 0) {
+		Debug("testing", filename, "against", p)
+		if matched, _ := filepath.Match(p, filename); matched {
 			return true
 		}
 	}
 	return false
-	// if ig.extensions[extension(filename)] {
-	// 	return true
-	// } else {
-	// 	for r := range ig.regexes {
-	// 		matched, err := filepath.Match(r, filename)
-	// 		if err != nil {
-	// 			panic(err) // TODO change this
-	// 		}
-	// 		if mached {
-	// 			return true
-	// 		}
-	// 	}
-	// }
-	// return false
 }
 
 // Return extension of filename: foo.js -> js

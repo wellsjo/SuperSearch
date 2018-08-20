@@ -2,8 +2,6 @@ package search
 
 import (
 	"fmt"
-	"github.com/fatih/color"
-	"golang.org/x/exp/mmap"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -11,6 +9,9 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/fatih/color"
+	"golang.org/x/exp/mmap"
 )
 
 var (
@@ -39,7 +40,7 @@ type SuperSearch struct {
 	wg           *sync.WaitGroup
 }
 
-func NewSuperSearch() {
+func NewSuperSearch() *SuperSearch {
 	Debug("Searching", Opts.location, "for", Opts.pattern)
 	Debug("Concurrency", *Opts.concurrency)
 	ss := &SuperSearch{
@@ -51,15 +52,16 @@ func NewSuperSearch() {
 		sem:          make(chan bool, *Opts.concurrency),
 		wg:           new(sync.WaitGroup),
 	}
-	go ss.runPrinter()
+	go ss.printer()
 	ss.run()
 	ss.wg.Wait()
 	ss.wg.Add(1)
 	ss.done <- true
 	ss.wg.Wait()
+	return ss
 }
 
-func (ss *SuperSearch) runPrinter() {
+func (ss *SuperSearch) printer() {
 	var dataToPrint = make(map[string][]string)
 	var finishedFiles = make(map[string]bool)
 	var canFinish bool = false
@@ -82,8 +84,6 @@ OUTER:
 				delete(finishedFiles, curFile)
 				fmt.Println()
 				curFile = ""
-			} else if canFinish && len(dataToPrint) == 0 {
-				break OUTER
 			}
 			if curFile == "" {
 				for i := range dataToPrint {
@@ -172,11 +172,10 @@ func (ss *SuperSearch) SearchFile(path string) {
 					output += fmt.Sprintln(string(line[lastIndex:]))
 				}
 				if len(output) > 0 {
-					p := PrintData{
+					ss.print <- &PrintData{
 						file: path,
 						data: output,
 					}
-					ss.print <- &p
 				}
 				lastIndex = i + 1
 				lineNo++

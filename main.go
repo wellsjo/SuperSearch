@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/wellsjo/search/search"
+	"github.com/wellsjo/SuperSearch/search"
 )
 
 func main() {
