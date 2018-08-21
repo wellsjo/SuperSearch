@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
@@ -36,9 +37,8 @@ type Options struct {
 
 	// Show more output
 	Debug bool
+	Quiet bool
 
-	// Suppress output
-	Quiet       bool
 	Concurrency int
 }
 
@@ -48,6 +48,7 @@ type SuperSearch struct {
 	searchRegexp *regexp.Regexp
 	searchQueue  chan *string
 	matches      *uint64
+	files        *uint64
 
 	wg *sync.WaitGroup
 }
@@ -55,21 +56,24 @@ type SuperSearch struct {
 func New(opts *Options) *SuperSearch {
 	Debug("Searching %q for %q", opts.Location, opts.Pattern)
 	Debug("Concurrency: %v", concurrency)
-	var matches uint64 = 0
+	var (
+		matches, files uint64
+	)
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 		opts:         opts,
 		matches:      &matches,
+		files:        &files,
 
 		// Allow enough files in the buffer so that there will always be plenty
 		// for the worker threads
-		searchQueue: make(chan *string, 1024),
-
-		wg: new(sync.WaitGroup),
+		searchQueue: make(chan *string, 4096),
+		wg:          new(sync.WaitGroup),
 	}
 }
 
 func (ss *SuperSearch) Run() {
+	start := time.Now()
 	ss.wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
 		go ss.worker()
@@ -77,7 +81,8 @@ func (ss *SuperSearch) Run() {
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
-	fmt.Printf("%v matches", *ss.matches)
+	fmt.Printf("%v matches\n%v files\n%v",
+		*ss.matches, *ss.files, time.Since(start).Round(time.Millisecond))
 }
 
 func (ss *SuperSearch) findFiles() {
@@ -112,7 +117,7 @@ func (ss *SuperSearch) scanDir(dir *string) {
 			Debug("Queuing %v", path)
 		}
 	}
-	Debug("Scan dir finished %v", dir)
+	Debug("Finished scanning directory %v", *dir)
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
@@ -157,9 +162,9 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
 
 			if ixs != nil {
-
 				if !matchFound {
 					matchFound = true
+					atomic.AddUint64(ss.files, 1)
 					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
 				}
 				// Increase match counter

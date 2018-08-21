@@ -12,9 +12,9 @@ import (
 )
 
 var opts struct {
-	Debug bool `short:"D" long:"debug" description:"Show verbose debug information"`
-
-	Concurrency int `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
+	Debug       bool `short:"D" long:"debug" description:"Show verbose debug information"`
+	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
 }
 
 func main() {
@@ -49,10 +49,15 @@ func main() {
 		return
 	}
 
+	if opts.Debug {
+		search.DebugMode = true
+	}
+
 	ss := search.New(&search.Options{
 		Pattern:     pattern,
 		Location:    location,
 		Debug:       opts.Debug,
+		Quiet:       opts.Quiet,
 		Concurrency: opts.Concurrency,
 	})
 
