@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
@@ -32,29 +33,36 @@ var (
 type Options struct {
 	Pattern  string
 	Location string
-	Debug    bool
+
+	// Show more output
+	Debug bool
+
+	// Suppress output
+	Quiet bool
 }
 
 type SuperSearch struct {
 	opts *Options
 
 	searchRegexp *regexp.Regexp
-	searchPaths  chan *string
+	searchQueue  chan *string
+	matches      *uint64
 
-	// Global wait group
 	wg *sync.WaitGroup
 }
 
 func New(opts *Options) *SuperSearch {
 	Debug("Searching %v for %v", opts.Location, opts.Pattern)
-	Debug("Concurrency", concurrency)
+	Debug("Concurrency: %v", concurrency)
+	var matches uint64 = 0
 	return &SuperSearch{
-		opts:         opts,
 		searchRegexp: regexp.MustCompile(opts.Pattern),
+		opts:         opts,
+		matches:      &matches,
 
 		// Allow enough files in the buffer so that there will always be plenty
 		// for the worker threads
-		searchPaths: make(chan *string, 1024),
+		searchQueue: make(chan *string, 1024),
 
 		wg: new(sync.WaitGroup),
 	}
@@ -66,8 +74,9 @@ func (ss *SuperSearch) Run() {
 		go ss.worker()
 	}
 	ss.findFiles()
-	close(ss.searchPaths)
+	close(ss.searchQueue)
 	ss.wg.Wait()
+	fmt.Printf("%v matches", *ss.matches)
 }
 
 func (ss *SuperSearch) findFiles() {
@@ -79,12 +88,13 @@ func (ss *SuperSearch) findFiles() {
 	case mode.IsDir():
 		ss.scanDir(&ss.opts.Location)
 	case mode.IsRegular():
-		ss.searchPaths <- &ss.opts.Location
+		ss.searchQueue <- &ss.opts.Location
 	}
 }
 
+// Recursively go through directory, sending all files into searchQueue
 func (ss *SuperSearch) scanDir(dir *string) {
-	Debug("Scanning directory %v", dir)
+	Debug("Scanning directory %v", *dir)
 	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
 		Fail("io error: failed to read directory. %v", err)
@@ -97,20 +107,22 @@ func (ss *SuperSearch) scanDir(dir *string) {
 		if fi.IsDir() {
 			ss.scanDir(&path)
 		} else if fi.Mode().IsRegular() {
-			ss.searchPaths <- &path
+			ss.searchQueue <- &path
 			Debug("Queuing %v", path)
 		}
 	}
 	Debug("Scan dir finished %v", dir)
 }
 
+// These run in parallel, taking files off of the searchQueue channel until it
+// is finished
 func (ss *SuperSearch) worker() {
 	Debug("Started worker")
-	var output *strings.Builder
-	for path := range ss.searchPaths {
-		ss.searchFile(path, output)
+	var output strings.Builder
+	for path := range ss.searchQueue {
+		ss.searchFile(path, &output)
 	}
-	if output.Len() > 0 {
+	if !ss.opts.Quiet && output.Len() > 0 {
 		fmt.Print(output.String())
 	}
 	ss.wg.Done()
@@ -141,7 +153,8 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
 
 			if ixs != nil {
-				output.Write([]byte(highlightNumber.Sprint(lineNo, ":")))
+				atomic.AddUint64(ss.matches, 1)
+				output.Write([]byte(highlightNumber.Sprintf("%v:", lineNo)))
 				lastIndex := 0
 
 				for _, i := range ixs {

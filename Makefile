@@ -1,5 +1,5 @@
 .PHONY: all
-all: search
+all: search test
 
 .PHONY: search
 search:
