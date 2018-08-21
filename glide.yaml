@@ -1,8 +1,0 @@
-package: github.com/wellsjo/search
-import:
-- package: github.com/fatih/color
-  version: ^1.5.0
-- package: golang.org/x/exp
-  subpackages:
-  - mmap
-- package: github.com/danwakefield/fnmatch

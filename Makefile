@@ -1,9 +1,12 @@
 .PHONY: all
-all: search test
+all: build
 
-.PHONY: search
-search:
-	go build -o bin/ss main.go
+.PHONY:
+build:
+	go build --race -ldflags "-X github.com/wellsjo/SuperSearch/search.debug=true" -o bin/ss main.go
+
+dist:
+	go build -ldflags "-X github.com/wellsjo/SuperSearch/search.debug=false" -o bin/dist main.go
 
 .PHONY: test
 test:
@@ -12,3 +15,6 @@ test:
 .PHONY: install
 install: search
 	cp bin/ss /usr/local/bin
+
+clean:
+	rm -rf bin

@@ -38,7 +38,8 @@ type Options struct {
 	Debug bool
 
 	// Suppress output
-	Quiet bool
+	Quiet       bool
+	Concurrency int
 }
 
 type SuperSearch struct {
@@ -52,7 +53,7 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
-	Debug("Searching %v for %v", opts.Location, opts.Pattern)
+	Debug("Searching %q for %q", opts.Location, opts.Pattern)
 	Debug("Concurrency: %v", concurrency)
 	var matches uint64 = 0
 	return &SuperSearch{
@@ -143,9 +144,12 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	lineNo := 1
 	buf := make([]byte, file.Len())
 	bytesRead, err := file.ReadAt(buf, 0)
+
 	if err != nil {
 		Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
 	}
+
+	matchFound := false
 
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
@@ -153,7 +157,14 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
 
 			if ixs != nil {
+
+				if !matchFound {
+					matchFound = true
+					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
+				}
+				// Increase match counter
 				atomic.AddUint64(ss.matches, 1)
+				// Print line number, followed by each match
 				output.Write([]byte(highlightNumber.Sprintf("%v:", lineNo)))
 				lastIndex := 0
 
@@ -168,6 +179,10 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 			lastIndex = i + 1
 			lineNo++
 		}
+	}
+
+	if matchFound {
+		output.Write([]byte("\n"))
 	}
 }
 
