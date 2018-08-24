@@ -7,18 +7,18 @@ import (
 
 var (
 	// Set at compile time with -ldflags
-	debug string
+	debugMode string
 	// Set at run time
 	DebugMode bool
 )
 
 func init() {
-	if debug == "true" {
+	if debugMode == "true" {
 		DebugMode = true
 	}
 }
 
-func Debug(a string, s ...interface{}) {
+func debug(a string, s ...interface{}) {
 	if DebugMode {
 		log.Printf(a, s...)
 	}
