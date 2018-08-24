@@ -34,14 +34,15 @@ var (
 )
 
 type Options struct {
-	Pattern  string
-	Location string
+	Pattern     string
+	Location    string
+	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
 
-	// Show more output
-	Debug bool
-	Quiet bool
+	Hidden bool `long:"hidden" description:"Search hidden files"`
 
-	Concurrency int
+	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
+	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
 }
 
 type SuperSearch struct {
@@ -106,12 +107,18 @@ func (ss *SuperSearch) findFiles() {
 // Recursively go through directory, sending all files into searchQueue
 func (ss *SuperSearch) scanDir(dir *string) {
 	debug("Scanning directory %v", *dir)
+	ignores, _ := NewGitIgnoreFromFile(*dir + "/.gitignore")
 	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
 		Fail("io error: failed to read directory. %v", err)
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
+			debug("Skipping hidden file %v", fi.Name())
+			continue
+		}
+		if ignores.Match(fi.Name()) {
+			debug("skipping gitignore match %v", fi.Name())
 			continue
 		}
 		path := filepath.Join(*dir, fi.Name())
