@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
@@ -80,7 +79,6 @@ func New(opts *Options) *SuperSearch {
 }
 
 func (ss *SuperSearch) Run() error {
-	start := time.Now()
 	ss.wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
 		go ss.worker()
@@ -89,9 +87,8 @@ func (ss *SuperSearch) Run() error {
 	close(ss.searchQueue)
 	ss.wg.Wait()
 	p := message.NewPrinter(language.English)
-	p.Printf("matches %v\nfiles %v/%v\n%v",
-		*ss.matches, *ss.filesMatched, *ss.filesSearched,
-		time.Since(start).Round(time.Millisecond))
+	p.Printf("%v matches found in %v files (%v total)",
+		*ss.matches, *ss.filesMatched, *ss.filesSearched)
 	return nil
 }
 
