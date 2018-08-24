@@ -11,11 +11,7 @@ import (
 	"github.com/wellsjo/SuperSearch/search"
 )
 
-var opts struct {
-	Debug       bool `short:"D" long:"debug" description:"Show verbose debug information"`
-	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
-	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
-}
+var opts search.Options
 
 func main() {
 	var (
@@ -54,11 +50,13 @@ func main() {
 	}
 
 	ss := search.New(&search.Options{
-		Pattern:     pattern,
-		Location:    location,
-		Debug:       opts.Debug,
-		Quiet:       opts.Quiet,
-		Concurrency: opts.Concurrency,
+		Pattern:      pattern,
+		Location:     location,
+		Quiet:        opts.Quiet,
+		Hidden:       opts.Hidden,
+		Concurrency:  opts.Concurrency,
+		Unrestricted: opts.Unrestricted,
+		Debug:        opts.Debug,
 	})
 
 	ss.Run()

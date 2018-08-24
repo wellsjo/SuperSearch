@@ -3,15 +3,10 @@ package search
 import (
 	"bytes"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"golang.org/x/exp/mmap"
 )
-
-// TODO can we get rid of ']'?
-const functionChars string = "!*?[\\"
-const regexChars string = "$(*+.?[^{|"
 
 type GitIgnore struct {
 	ignorePatterns []string
@@ -24,12 +19,12 @@ func NewGitIgnore() *GitIgnore {
 }
 
 // Loads ignore patterns from a file
-func NewGitIgnoreFromFile(file string) []*regexp.Regexp {
+func NewGitIgnoreFromFile(file string) (*GitIgnore, error) {
 	reader, err := mmap.Open(file)
 	if err != nil {
-		panic(err) // TODO remove this
+		return &GitIgnore{}, err
 	}
-	var ignores []*regexp.Regexp
+	var ignores []string
 	for lastIndex, curIndex := 0, 0; curIndex < reader.Len(); curIndex++ {
 		if reader.At(curIndex) == '\n' {
 			var line = make([]byte, curIndex-lastIndex+1)
@@ -43,10 +38,12 @@ func NewGitIgnoreFromFile(file string) []*regexp.Regexp {
 			if line[0] == '#' || len(line) == 0 {
 				continue
 			}
-			ignores = append(ignores, regexp.MustCompile(string(line)))
+			ignores = append(ignores, (string(line)))
 		}
 	}
-	return ignores
+	return &GitIgnore{
+		ignorePatterns: ignores,
+	}, nil
 }
 
 func (ig *GitIgnore) AddIgnorePattern(pattern string) {
@@ -55,7 +52,7 @@ func (ig *GitIgnore) AddIgnorePattern(pattern string) {
 
 func (ig *GitIgnore) Match(filename string) bool {
 	for _, p := range ig.ignorePatterns {
-		Debug("testing %v against %v", filename, p)
+		debug("testing %v against %v", filename, p)
 		if matched, _ := filepath.Match(p, filename); matched {
 			return true
 		}
@@ -74,12 +71,4 @@ func extension(filename string) string {
 	} else {
 		return filename[i+1:]
 	}
-}
-
-func isFnMatch(filename string) bool {
-	return strings.ContainsAny(filename, functionChars)
-}
-
-func isRegex(query string) bool {
-	return strings.ContainsAny(query, regexChars)
 }

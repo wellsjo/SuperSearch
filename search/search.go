@@ -15,6 +15,8 @@ import (
 
 	"github.com/fatih/color"
 	"golang.org/x/exp/mmap"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 var (
@@ -32,41 +34,44 @@ var (
 )
 
 type Options struct {
-	Pattern  string
-	Location string
+	Pattern     string
+	Location    string
+	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
 
-	// Show more output
-	Debug bool
-	Quiet bool
+	Hidden bool `long:"hidden" description:"Search hidden files"`
 
-	Concurrency int
+	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
+	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
 }
 
 type SuperSearch struct {
 	opts *Options
 
-	searchRegexp *regexp.Regexp
-	searchQueue  chan *string
-	matches      *uint64
-	files        *uint64
+	searchRegexp  *regexp.Regexp
+	searchQueue   chan *string
+	matches       *uint64
+	filesMatched  *uint64
+	filesSearched *uint64
 
 	wg *sync.WaitGroup
 }
 
 func New(opts *Options) *SuperSearch {
-	Debug("Searching %q for %q", opts.Location, opts.Pattern)
-	Debug("Concurrency: %v", concurrency)
+	debug("Searching %q for %q", opts.Location, opts.Pattern)
+	debug("Concurrency: %v", concurrency)
 	var (
-		matches, files uint64
+		matches, filesMatched, filesSearched uint64
 	)
 	return &SuperSearch{
-		searchRegexp: regexp.MustCompile(opts.Pattern),
-		opts:         opts,
-		matches:      &matches,
-		files:        &files,
+		searchRegexp:  regexp.MustCompile(opts.Pattern),
+		opts:          opts,
+		matches:       &matches,
+		filesMatched:  &filesMatched,
+		filesSearched: &filesSearched,
 
 		// Allow enough files in the buffer so that there will always be plenty
-		// for the worker threads
+		// for the worker threads. This is an arbitrary large number.
 		searchQueue: make(chan *string, 4096),
 		wg:          new(sync.WaitGroup),
 	}
@@ -81,8 +86,9 @@ func (ss *SuperSearch) Run() {
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
-	fmt.Printf("%v matches\n%v files\n%v",
-		*ss.matches, *ss.files, time.Since(start).Round(time.Millisecond))
+	p := message.NewPrinter(language.English)
+	p.Printf("matches %v\nfiles %v/%v\n%v",
+		*ss.matches, *ss.filesMatched, *ss.filesSearched, time.Since(start).Round(time.Millisecond))
 }
 
 func (ss *SuperSearch) findFiles() {
@@ -100,13 +106,19 @@ func (ss *SuperSearch) findFiles() {
 
 // Recursively go through directory, sending all files into searchQueue
 func (ss *SuperSearch) scanDir(dir *string) {
-	Debug("Scanning directory %v", *dir)
+	debug("Scanning directory %v", *dir)
+	ignores, _ := NewGitIgnoreFromFile(*dir + "/.gitignore")
 	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
 		Fail("io error: failed to read directory. %v", err)
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
+			debug("Skipping hidden file %v", fi.Name())
+			continue
+		}
+		if ignores.Match(fi.Name()) {
+			debug("skipping gitignore match %v", fi.Name())
 			continue
 		}
 		path := filepath.Join(*dir, fi.Name())
@@ -114,16 +126,16 @@ func (ss *SuperSearch) scanDir(dir *string) {
 			ss.scanDir(&path)
 		} else if fi.Mode().IsRegular() {
 			ss.searchQueue <- &path
-			Debug("Queuing %v", path)
+			debug("Queuing %v", path)
 		}
 	}
-	Debug("Finished scanning directory %v", *dir)
+	debug("Finished scanning directory %v", *dir)
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
 func (ss *SuperSearch) worker() {
-	Debug("Started worker")
+	debug("Started worker")
 	var output strings.Builder
 	for path := range ss.searchQueue {
 		ss.searchFile(path, &output)
@@ -141,7 +153,15 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	}
 	defer file.Close()
 
-	if isBin(file) || file.Len() == 0 {
+	atomic.AddUint64(ss.filesSearched, 1)
+
+	if isBin(file) {
+		debug("Skipping binary file")
+		return
+	}
+
+	if file.Len() == 0 {
+		debug("Skipping empty file")
 		return
 	}
 
@@ -164,7 +184,7 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 			if ixs != nil {
 				if !matchFound {
 					matchFound = true
-					atomic.AddUint64(ss.files, 1)
+					atomic.AddUint64(ss.filesMatched, 1)
 					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
 				}
 				// Increase match counter
