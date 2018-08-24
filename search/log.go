@@ -2,7 +2,6 @@ package search
 
 import (
 	"log"
-	"os"
 )
 
 var (
@@ -22,9 +21,4 @@ func debug(a string, s ...interface{}) {
 	if DebugMode {
 		log.Printf(a, s...)
 	}
-}
-
-func Fail(s ...interface{}) {
-	log.Println(s...)
-	os.Exit(1)
 }

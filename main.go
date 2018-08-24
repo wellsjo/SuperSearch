@@ -11,19 +11,19 @@ import (
 	"github.com/wellsjo/SuperSearch/search"
 )
 
-var opts search.Options
-
 func main() {
 	var (
 		pattern  string
 		location string
+		opts     search.Options
 	)
 
 	parser := flags.NewParser(&opts, flags.Default)
+	parser.Usage = "[OPTIONS] PATTERN [PATH]"
 	args, err := parser.Parse()
 
 	if err != nil {
-		log.Fatal(err)
+		fail(err)
 	}
 
 	if len(args) == 0 {
@@ -59,5 +59,13 @@ func main() {
 		Debug:        opts.Debug,
 	})
 
-	ss.Run()
+	err2 := ss.Run()
+	if err2 != nil {
+		fail(err)
+	}
+}
+
+func fail(s ...interface{}) {
+	log.Println(s...)
+	os.Exit(1)
 }

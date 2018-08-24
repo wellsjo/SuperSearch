@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"github.com/juju/errors"
 	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -34,6 +35,7 @@ var (
 )
 
 type Options struct {
+	Usage       string
 	Pattern     string
 	Location    string
 	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
@@ -77,7 +79,7 @@ func New(opts *Options) *SuperSearch {
 	}
 }
 
-func (ss *SuperSearch) Run() {
+func (ss *SuperSearch) Run() error {
 	start := time.Now()
 	ss.wg.Add(concurrency)
 	for i := 0; i < concurrency; i++ {
@@ -88,13 +90,15 @@ func (ss *SuperSearch) Run() {
 	ss.wg.Wait()
 	p := message.NewPrinter(language.English)
 	p.Printf("matches %v\nfiles %v/%v\n%v",
-		*ss.matches, *ss.filesMatched, *ss.filesSearched, time.Since(start).Round(time.Millisecond))
+		*ss.matches, *ss.filesMatched, *ss.filesSearched,
+		time.Since(start).Round(time.Millisecond))
+	return nil
 }
 
-func (ss *SuperSearch) findFiles() {
+func (ss *SuperSearch) findFiles() error {
 	fi, err := os.Stat(ss.opts.Location)
 	if err != nil {
-		Fail(err)
+		return err
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
@@ -102,15 +106,16 @@ func (ss *SuperSearch) findFiles() {
 	case mode.IsRegular():
 		ss.searchQueue <- &ss.opts.Location
 	}
+	return nil
 }
 
 // Recursively go through directory, sending all files into searchQueue
-func (ss *SuperSearch) scanDir(dir *string) {
+func (ss *SuperSearch) scanDir(dir *string) error {
 	debug("Scanning directory %v", *dir)
 	ignores, _ := NewGitIgnoreFromFile(*dir + "/.gitignore")
 	dirInfo, err := ioutil.ReadDir(*dir)
 	if err != nil {
-		Fail("io error: failed to read directory. %v", err)
+		return errors.Annotate(err, "io error: failed to read directory")
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
@@ -130,6 +135,7 @@ func (ss *SuperSearch) scanDir(dir *string) {
 		}
 	}
 	debug("Finished scanning directory %v", *dir)
+	return nil
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
@@ -146,10 +152,10 @@ func (ss *SuperSearch) worker() {
 	ss.wg.Done()
 }
 
-func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
+func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 	file, err := mmap.Open(*path)
 	if err != nil {
-		Fail("Failed to open file with mmap", path)
+		return errors.Annotate(err, "Failed to open file with mmap")
 	}
 	defer file.Close()
 
@@ -157,12 +163,12 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 
 	if isBin(file) {
 		debug("Skipping binary file")
-		return
+		return nil
 	}
 
 	if file.Len() == 0 {
 		debug("Skipping empty file")
-		return
+		return nil
 	}
 
 	lastIndex := 0
@@ -171,7 +177,7 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	bytesRead, err := file.ReadAt(buf, 0)
 
 	if err != nil {
-		Fail("Failed to read file", *path+".", "Read", bytesRead, "bytes.")
+		return errors.Annotate(err, fmt.Sprint("Failed to read file", *path+".", "Read", bytesRead, "bytes."))
 	}
 
 	matchFound := false
@@ -209,6 +215,8 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) {
 	if matchFound {
 		output.Write([]byte("\n"))
 	}
+
+	return nil
 }
 
 // Cheap (at the expense of being janky) way to determine if a file is binary

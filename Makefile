@@ -1,5 +1,5 @@
 .PHONY: all
-all: build dist
+all: build dist test install
 
 .PHONY:
 build:
@@ -13,7 +13,7 @@ test:
 	go test -v ./...
 
 .PHONY: install
-install: clean dist
+install: dist
 	cp bin/dist $$HOME/bin/ss
 
 .PHONY: clean
