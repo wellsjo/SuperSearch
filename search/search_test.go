@@ -65,7 +65,7 @@ func TestSearch(t *testing.T) {
 		Quiet:    true,
 	})
 	s.Run()
-	assert.Equal(t, numFiles1*linesPerFile1, int(*s.numMatches),
+	assert.Equal(t, numFiles1*linesPerFile1, int(s.numMatches),
 		fmt.Sprintf("there should be %d matches", numFiles1*linesPerFile1))
 }
 
