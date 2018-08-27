@@ -25,8 +25,8 @@ var (
 	ignoreFiles          = [...]string{".gitignore"}
 	globalIgnorePatterns = []*regexp.Regexp{}
 
-	// Set concurrency to # cores
-	concurrency = runtime.NumCPU()
+	// Set concurrency to # cores if client doesn't supply
+	defaultConcurrency = runtime.NumCPU()
 
 	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
 	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
@@ -38,7 +38,7 @@ type Options struct {
 	Pattern     string
 	Location    string
 	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
-	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel" default:"8"`
+	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel"`
 
 	Hidden bool `long:"hidden" description:"Search hidden files"`
 
@@ -59,8 +59,11 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
+	if opts.Concurrency == 0 {
+		opts.Concurrency = defaultConcurrency
+	}
 	debug("Searching %q for %q", opts.Location, opts.Pattern)
-	debug("Concurrency: %v", concurrency)
+	debug("Concurrency: %v", opts.Concurrency)
 	var (
 		numMatches, filesMatched, filesSearched uint64
 	)
@@ -79,8 +82,8 @@ func New(opts *Options) *SuperSearch {
 }
 
 func (ss *SuperSearch) Run() error {
-	ss.wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
+	ss.wg.Add(ss.opts.Concurrency)
+	for i := 0; i < ss.opts.Concurrency; i++ {
 		go ss.worker()
 	}
 	ss.findFiles()

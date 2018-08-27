@@ -12,12 +12,18 @@ import (
 )
 
 // var testDir string
-var numFiles = 10
-var linesPerFile = 100
-var testDir = setupSearchFolder(numFiles, linesPerFile)
+var numFiles1 = 10
+var linesPerFile1 = 10
+var numFiles2 = 100
+var linesPerFile2 = 1000
+var testDir = setupSearchFolder(numFiles1, linesPerFile1)
+var testDir2 = setupSearchFolder(numFiles2, linesPerFile2)
 
 func TestMain(m *testing.M) {
-	defer os.Remove(testDir)
+	defer func() {
+		os.Remove(testDir)
+		os.Remove(testDir2)
+	}()
 	os.Exit(m.Run())
 }
 
@@ -41,7 +47,7 @@ func createSearchFile(dir, file string, lines int) {
 		log.Fatal(err)
 	}
 	var content []byte
-	for i := 0; i < linesPerFile; i++ {
+	for i := 0; i < lines; i++ {
 		content = append(content, []byte("The quick brown fox jumped over the lazy dog.\n")...)
 	}
 	if _, err := tmpFile.Write(content); err != nil {
@@ -53,15 +59,14 @@ func createSearchFile(dir, file string, lines int) {
 }
 
 func TestSearch(t *testing.T) {
-	fmt.Printf("test searching %v", testDir)
 	s := New(&Options{
 		Pattern:  "fox",
 		Location: testDir,
 		Quiet:    true,
 	})
 	s.Run()
-	assert.Equal(t, numFiles*linesPerFile, int(*s.numMatches),
-		fmt.Sprintf("there should be %d matches", numFiles*linesPerFile))
+	assert.Equal(t, numFiles1*linesPerFile1, int(*s.numMatches),
+		fmt.Sprintf("there should be %d matches", numFiles1*linesPerFile1))
 }
 
 func BenchmarkSearchConcurrency1(b *testing.B) {
@@ -76,7 +81,7 @@ func BenchmarkSearchConcurrency1(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchConcurrency2(b *testing.B) {
+func BenchmarkSearchConcurrencySmall2(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
 			Pattern:     "fox",
@@ -88,7 +93,7 @@ func BenchmarkSearchConcurrency2(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchConcurrency4(b *testing.B) {
+func BenchmarkSearchConcurrencySmall4(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
 			Pattern:     "fox",
@@ -100,7 +105,7 @@ func BenchmarkSearchConcurrency4(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchConcurrency8(b *testing.B) {
+func BenchmarkSearchConcurrencySmall8(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
 			Pattern:     "fox",
@@ -112,7 +117,7 @@ func BenchmarkSearchConcurrency8(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchConcurrency16(b *testing.B) {
+func BenchmarkSearchConcurrencySmall16(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
 			Pattern:     "fox",
@@ -124,13 +129,110 @@ func BenchmarkSearchConcurrency16(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchConcurrency32(b *testing.B) {
+func BenchmarkSearchConcurrencySmall32(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
 			Pattern:     "fox",
 			Location:    testDir,
 			Quiet:       true,
 			Concurrency: 32,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencySmall64(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir,
+			Quiet:       true,
+			Concurrency: 64,
+		})
+		s.Run()
+	}
+}
+
+// Large dir
+func BenchmarkSearchConcurrencyLarge1(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 1,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge2(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 2,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge4(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 4,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge8(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 8,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge16(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 16,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge32(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 32,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchConcurrencyLarge64(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:     "fox",
+			Location:    testDir2,
+			Quiet:       true,
+			Concurrency: 64,
 		})
 		s.Run()
 	}
