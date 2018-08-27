@@ -51,7 +51,7 @@ type SuperSearch struct {
 
 	searchRegexp  *regexp.Regexp
 	searchQueue   chan *string
-	matches       *uint64
+	numMatches    *uint64
 	filesMatched  *uint64
 	filesSearched *uint64
 
@@ -62,12 +62,12 @@ func New(opts *Options) *SuperSearch {
 	debug("Searching %q for %q", opts.Location, opts.Pattern)
 	debug("Concurrency: %v", concurrency)
 	var (
-		matches, filesMatched, filesSearched uint64
+		numMatches, filesMatched, filesSearched uint64
 	)
 	return &SuperSearch{
 		searchRegexp:  regexp.MustCompile(opts.Pattern),
 		opts:          opts,
-		matches:       &matches,
+		numMatches:    &numMatches,
 		filesMatched:  &filesMatched,
 		filesSearched: &filesSearched,
 
@@ -86,9 +86,9 @@ func (ss *SuperSearch) Run() error {
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
-	p := message.NewPrinter(language.English)
-	p.Printf("%v matches found in %v files (%v total)",
-		*ss.matches, *ss.filesMatched, *ss.filesSearched)
+	if !ss.opts.Quiet {
+		ss.printResults()
+	}
 	return nil
 }
 
@@ -191,7 +191,7 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
 				}
 				// Increase match counter
-				atomic.AddUint64(ss.matches, 1)
+				atomic.AddUint64(ss.numMatches, 1)
 				// Print line number, followed by each match
 				output.Write([]byte(highlightNumber.Sprintf("%v:", lineNo)))
 				lastIndex := 0
@@ -229,4 +229,19 @@ func isBin(file *mmap.ReaderAt) bool {
 		offset += offsetLen
 	}
 	return false
+}
+
+func (ss *SuperSearch) printResults() {
+	p := message.NewPrinter(language.English)
+	matchesPlural := "s"
+	if *ss.numMatches == 1 {
+		matchesPlural = ""
+	}
+	filesPlural := "s"
+	if *ss.filesMatched == 1 {
+		filesPlural = ""
+	}
+	p.Printf("%v matche%s found in %v file%s (%v total)",
+		*ss.numMatches, matchesPlural, *ss.filesMatched,
+		filesPlural, *ss.filesSearched)
 }

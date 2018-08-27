@@ -35,7 +35,7 @@ func NewGitIgnoreFromFile(file string) (*GitIgnore, error) {
 			}
 			// Ignore comments, whitespace
 			line = bytes.TrimSpace(line)
-			if line[0] == '#' || len(line) == 0 {
+			if len(line) == 0 || line[0] == '#' {
 				continue
 			}
 			ignores = append(ignores, (string(line)))

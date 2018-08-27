@@ -12,6 +12,9 @@ dist:
 test:
 	go test -v ./...
 
+bench:
+	go test -bench "Search" ./...
+
 .PHONY: install
 install: dist
 	cp bin/dist $$HOME/bin/ss
