@@ -51,8 +51,8 @@ func (ig *GitIgnore) AddIgnorePattern(pattern string) {
 }
 
 func (ig *GitIgnore) Match(filename string) bool {
+	debug("Testing %v against .gitignore", filename)
 	for _, p := range ig.ignorePatterns {
-		debug("testing %v against %v", filename, p)
 		if matched, _ := filepath.Match(p, filename); matched {
 			return true
 		}

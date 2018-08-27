@@ -140,18 +140,14 @@ func (ss *SuperSearch) newWorker() {
 	debug("Started worker %v", ss.numWorkers)
 	ss.wg.Add(1)
 	go func() {
-		var output strings.Builder
 		for path := range ss.searchQueue {
-			ss.searchFile(path, &output)
-		}
-		if !ss.opts.Quiet && output.Len() > 0 {
-			fmt.Print(output.String())
+			ss.searchFile(path)
 		}
 		ss.wg.Done()
 	}()
 }
 
-func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
+func (ss *SuperSearch) searchFile(path *string) error {
 	file, err := mmap.Open(*path)
 	if err != nil {
 		return errors.Annotate(err, "Failed to open file with mmap")
@@ -170,6 +166,8 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 		return nil
 	}
 
+	var output strings.Builder
+	matchFound := false
 	lastIndex := 0
 	lineNo := 1
 	buf := make([]byte, file.Len())
@@ -178,8 +176,6 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 	if err != nil {
 		return errors.Annotate(err, fmt.Sprint("Failed to read file", *path+".", "Read", bytesRead, "bytes."))
 	}
-
-	matchFound := false
 
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
@@ -213,6 +209,10 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 
 	if matchFound {
 		output.Write([]byte("\n"))
+	}
+
+	if !ss.opts.Quiet && output.Len() > 0 {
+		fmt.Print(output.String())
 	}
 
 	return nil
