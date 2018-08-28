@@ -25,8 +25,8 @@ var (
 	ignoreFiles          = [...]string{".gitignore"}
 	globalIgnorePatterns = []*regexp.Regexp{}
 
-	// Set concurrency to # cores if client doesn't supply
-	defaultConcurrency = runtime.NumCPU()
+	// Setting max concurrency to # cpu cores gives best results
+	maxConcurrency = runtime.NumCPU()
 
 	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
 	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
@@ -34,14 +34,12 @@ var (
 )
 
 type Options struct {
-	Usage       string
-	Pattern     string
-	Location    string
-	Quiet       bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
-	Concurrency int  `short:"c" long:"concurrency" description:"The number of files to process in parallel"`
+	Usage    string
+	Pattern  string
+	Location string
 
-	Hidden bool `long:"hidden" description:"Search hidden files"`
-
+	Quiet        bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	Hidden       bool `long:"hidden" description:"Search hidden files"`
 	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
 	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
 }
@@ -60,11 +58,7 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
-	if opts.Concurrency == 0 {
-		opts.Concurrency = defaultConcurrency
-	}
 	debug("Searching %q for %q", opts.Location, opts.Pattern)
-	debug("Concurrency: %v", opts.Concurrency)
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 		opts:         opts,
@@ -124,7 +118,7 @@ func (ss *SuperSearch) scanDir(dir *string) error {
 		} else if fi.Mode().IsRegular() {
 			ss.searchQueue <- &path
 			debug("Queuing %v", path)
-			if len(ss.searchQueue) > 1 {
+			if maxConcurrency > int(ss.numWorkers) && len(ss.searchQueue) > 1 {
 				ss.newWorker()
 			}
 		}
