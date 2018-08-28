@@ -54,7 +54,6 @@ func main() {
 		Location:     location,
 		Quiet:        opts.Quiet,
 		Hidden:       opts.Hidden,
-		Concurrency:  opts.Concurrency,
 		Unrestricted: opts.Unrestricted,
 		Debug:        opts.Debug,
 	})

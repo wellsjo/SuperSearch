@@ -51,11 +51,12 @@ type SuperSearch struct {
 
 	searchRegexp  *regexp.Regexp
 	searchQueue   chan *string
-	numMatches    *uint64
-	filesMatched  *uint64
-	filesSearched *uint64
+	numMatches    uint64
+	filesMatched  uint64
+	filesSearched uint64
 
-	wg *sync.WaitGroup
+	wg         *sync.WaitGroup
+	numWorkers uint64
 }
 
 func New(opts *Options) *SuperSearch {
@@ -64,15 +65,9 @@ func New(opts *Options) *SuperSearch {
 	}
 	debug("Searching %q for %q", opts.Location, opts.Pattern)
 	debug("Concurrency: %v", opts.Concurrency)
-	var (
-		numMatches, filesMatched, filesSearched uint64
-	)
 	return &SuperSearch{
-		searchRegexp:  regexp.MustCompile(opts.Pattern),
-		opts:          opts,
-		numMatches:    &numMatches,
-		filesMatched:  &filesMatched,
-		filesSearched: &filesSearched,
+		searchRegexp: regexp.MustCompile(opts.Pattern),
+		opts:         opts,
 
 		// Allow enough files in the buffer so that there will always be plenty
 		// for the worker threads. This is an arbitrary large number.
@@ -82,10 +77,7 @@ func New(opts *Options) *SuperSearch {
 }
 
 func (ss *SuperSearch) Run() error {
-	ss.wg.Add(ss.opts.Concurrency)
-	for i := 0; i < ss.opts.Concurrency; i++ {
-		go ss.worker()
-	}
+	ss.newWorker()
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
@@ -132,6 +124,9 @@ func (ss *SuperSearch) scanDir(dir *string) error {
 		} else if fi.Mode().IsRegular() {
 			ss.searchQueue <- &path
 			debug("Queuing %v", path)
+			if len(ss.searchQueue) > 1 {
+				ss.newWorker()
+			}
 		}
 	}
 	debug("Finished scanning directory %v", *dir)
@@ -140,26 +135,26 @@ func (ss *SuperSearch) scanDir(dir *string) error {
 
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
-func (ss *SuperSearch) worker() {
-	debug("Started worker")
-	var output strings.Builder
-	for path := range ss.searchQueue {
-		ss.searchFile(path, &output)
-	}
-	if !ss.opts.Quiet && output.Len() > 0 {
-		fmt.Print(output.String())
-	}
-	ss.wg.Done()
+func (ss *SuperSearch) newWorker() {
+	atomic.AddUint64(&ss.numWorkers, 1)
+	debug("Started worker %v", ss.numWorkers)
+	ss.wg.Add(1)
+	go func() {
+		for path := range ss.searchQueue {
+			ss.searchFile(path)
+		}
+		ss.wg.Done()
+	}()
 }
 
-func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
+func (ss *SuperSearch) searchFile(path *string) error {
 	file, err := mmap.Open(*path)
 	if err != nil {
 		return errors.Annotate(err, "Failed to open file with mmap")
 	}
 	defer file.Close()
 
-	atomic.AddUint64(ss.filesSearched, 1)
+	atomic.AddUint64(&ss.filesSearched, 1)
 
 	if isBin(file) {
 		debug("Skipping binary file")
@@ -171,6 +166,8 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 		return nil
 	}
 
+	var output strings.Builder
+	matchFound := false
 	lastIndex := 0
 	lineNo := 1
 	buf := make([]byte, file.Len())
@@ -180,8 +177,6 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 		return errors.Annotate(err, fmt.Sprint("Failed to read file", *path+".", "Read", bytesRead, "bytes."))
 	}
 
-	matchFound := false
-
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
 			var line = buf[lastIndex:i]
@@ -190,11 +185,11 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 			if ixs != nil {
 				if !matchFound {
 					matchFound = true
-					atomic.AddUint64(ss.filesMatched, 1)
+					atomic.AddUint64(&ss.filesMatched, 1)
 					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
 				}
 				// Increase match counter
-				atomic.AddUint64(ss.numMatches, 1)
+				atomic.AddUint64(&ss.numMatches, 1)
 				// Print line number, followed by each match
 				output.Write([]byte(highlightNumber.Sprintf("%v:", lineNo)))
 				lastIndex := 0
@@ -214,6 +209,10 @@ func (ss *SuperSearch) searchFile(path *string, output *strings.Builder) error {
 
 	if matchFound {
 		output.Write([]byte("\n"))
+	}
+
+	if !ss.opts.Quiet && output.Len() > 0 {
+		fmt.Print(output.String())
 	}
 
 	return nil
@@ -237,14 +236,14 @@ func isBin(file *mmap.ReaderAt) bool {
 func (ss *SuperSearch) printResults() {
 	p := message.NewPrinter(language.English)
 	matchesPlural := "s"
-	if *ss.numMatches == 1 {
+	if ss.numMatches == 1 {
 		matchesPlural = ""
 	}
 	filesPlural := "s"
-	if *ss.filesMatched == 1 {
+	if ss.filesMatched == 1 {
 		filesPlural = ""
 	}
 	p.Printf("%v matche%s found in %v file%s (%v total)",
-		*ss.numMatches, matchesPlural, *ss.filesMatched,
-		filesPlural, *ss.filesSearched)
+		ss.numMatches, matchesPlural, ss.filesMatched,
+		filesPlural, ss.filesSearched)
 }

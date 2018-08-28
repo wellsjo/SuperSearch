@@ -65,175 +65,238 @@ func TestSearch(t *testing.T) {
 		Quiet:    true,
 	})
 	s.Run()
-	assert.Equal(t, numFiles1*linesPerFile1, int(*s.numMatches),
+	assert.Equal(t, numFiles1*linesPerFile1, int(s.numMatches),
 		fmt.Sprintf("there should be %d matches", numFiles1*linesPerFile1))
 }
 
-func BenchmarkSearchConcurrency1(b *testing.B) {
+func BenchmarkSearchDynamicConcurrency(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 1,
+			Pattern:  "fox",
+			Location: testDir,
+			Quiet:    true,
 		})
 		s.Run()
 	}
 }
 
-func BenchmarkSearchConcurrencySmall2(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 2,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall2(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 2,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencySmall4(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 4,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall4(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 4,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencySmall8(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 8,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall8(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 8,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencySmall16(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 16,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall16(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 16,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencySmall32(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 32,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall32(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 32,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencySmall64(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir,
-			Quiet:       true,
-			Concurrency: 64,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencySmall64(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir,
+// 			Quiet:       true,
+// 			Concurrency: 64,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-// Large dir
-func BenchmarkSearchConcurrencyLarge1(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 1,
-		})
-		s.Run()
-	}
-}
+// // Large dir
+// func BenchmarkSearchConcurrencyLarge1(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 1,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge2(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 2,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge2(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 2,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge4(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 4,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge4(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 4,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge8(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 8,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge8(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 8,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge16(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 16,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge16(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 16,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge32(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 32,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge32(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 32,
+// 		})
+// 		s.Run()
+// 	}
+// }
 
-func BenchmarkSearchConcurrencyLarge64(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		s := New(&Options{
-			Pattern:     "fox",
-			Location:    testDir2,
-			Quiet:       true,
-			Concurrency: 64,
-		})
-		s.Run()
-	}
-}
+// func BenchmarkSearchConcurrencyLarge64(b *testing.B) {
+// 	b.Skip()
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:     "fox",
+// 			Location:    testDir2,
+// 			Quiet:       true,
+// 			Concurrency: 64,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// The following tests determined that maxWorkers should be numCPU
+// However these don't compile anymore
+
+// func BenchmarkSearchDynamicConcurrencyMax4(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:    "fox",
+// 			Location:   testDir2,
+// 			Quiet:      true,
+// 			MaxWorkers: 4,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkSearchDynamicConcurrencyMax8(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:    "fox",
+// 			Location:   testDir2,
+// 			Quiet:      true,
+// 			MaxWorkers: 8,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkSearchDynamicConcurrencyMax9(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:    "fox",
+// 			Location:   testDir2,
+// 			Quiet:      true,
+// 			MaxWorkers: 9,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkSearchDynamicConcurrencyMax16(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:    "fox",
+// 			Location:   testDir2,
+// 			Quiet:      true,
+// 			MaxWorkers: 16,
+// 		})
+// 		s.Run()
+// 	}
+// }
