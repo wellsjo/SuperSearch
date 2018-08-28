@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,15 +33,18 @@ func main() {
 	if len(args) > 0 {
 		pattern = args[0]
 	}
+
 	if len(args) > 1 {
 		location = args[1]
 	}
+
+	if pattern == "" {
+		parser.WriteHelp(os.Stdout)
+		return
+	}
+
 	if location == "" {
 		location = "." + string(filepath.Separator)
-	}
-	if pattern == "" {
-		flag.PrintDefaults()
-		return
 	}
 
 	if opts.Debug {
@@ -58,8 +60,8 @@ func main() {
 		Debug:        opts.Debug,
 	})
 
-	err2 := ss.Run()
-	if err2 != nil {
+	err = ss.Run()
+	if err != nil {
 		fail(err)
 	}
 }
