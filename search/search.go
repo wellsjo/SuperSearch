@@ -180,20 +180,23 @@ func (ss *SuperSearch) searchFile(path *string) error {
 				if !matchFound {
 					matchFound = true
 					atomic.AddUint64(&ss.filesMatched, 1)
-					output.Write([]byte(highlightFile.Sprintf("%v\n", *path)))
+					output.WriteString(highlightFile.Sprintf("%v\n", *path))
 				}
-				// Increase match counter
+
 				atomic.AddUint64(&ss.numMatches, 1)
+
 				// Print line number, followed by each match
-				output.Write([]byte(highlightNumber.Sprintf("%v:", lineNo)))
+				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
 				lastIndex := 0
 
+				// Loop through match indexes, output highlighted match
 				for _, i := range ixs {
-					output.Write([]byte(fmt.Sprint(string(line[lastIndex:i[0]]))))
-					output.Write([]byte(highlightMatch.Sprint(string(line[i[0]:i[1]]))))
+					output.Write(line[lastIndex:i[0]])
+					output.WriteString(highlightMatch.Sprint(string(line[i[0]:i[1]])))
 					lastIndex = i[1]
 				}
-				output.Write([]byte(fmt.Sprintln(string(line[lastIndex:]))))
+				output.Write(line[lastIndex:])
+				output.WriteRune('\n')
 			}
 
 			lastIndex = i + 1
@@ -202,7 +205,7 @@ func (ss *SuperSearch) searchFile(path *string) error {
 	}
 
 	if matchFound {
-		output.Write([]byte("\n"))
+		output.WriteRune('\n')
 	}
 
 	if !ss.opts.Quiet && output.Len() > 0 {
