@@ -135,14 +135,14 @@ func (ss *SuperSearch) newWorker() {
 	ss.wg.Add(1)
 	go func() {
 		for path := range ss.searchQueue {
-			ss.searchFile(path)
+			ss.searchFile(*path)
 		}
 		ss.wg.Done()
 	}()
 }
 
-func (ss *SuperSearch) searchFile(path *string) error {
-	file, err := mmap.Open(*path)
+func (ss *SuperSearch) searchFile(path string) error {
+	file, err := mmap.Open(path)
 	if err != nil {
 		return errors.Annotate(err, "Failed to open file with mmap")
 	}
@@ -168,7 +168,8 @@ func (ss *SuperSearch) searchFile(path *string) error {
 	bytesRead, err := file.ReadAt(buf, 0)
 
 	if err != nil {
-		return errors.Annotate(err, fmt.Sprint("Failed to read file", *path+".", "Read", bytesRead, "bytes."))
+		return errors.Annotate(err,
+			fmt.Sprint("Failed to read file", path+".", "Read", bytesRead, "bytes."))
 	}
 
 	for i := 0; i < len(buf); i++ {
@@ -180,7 +181,7 @@ func (ss *SuperSearch) searchFile(path *string) error {
 				if !matchFound {
 					matchFound = true
 					atomic.AddUint64(&ss.filesMatched, 1)
-					output.WriteString(highlightFile.Sprintf("%v\n", *path))
+					output.WriteString(highlightFile.Sprintf("%v\n", path))
 				}
 
 				atomic.AddUint64(&ss.numMatches, 1)
