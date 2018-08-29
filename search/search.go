@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
-	"github.com/juju/errors"
 	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -96,12 +95,12 @@ func (ss *SuperSearch) findFiles() error {
 }
 
 // Recursively go through directory, sending all files into searchQueue
-func (ss *SuperSearch) scanDir(dir string) error {
+func (ss *SuperSearch) scanDir(dir string) {
 	debug("Scanning directory %v", dir)
 	ignore, _ := NewGitIgnoreFromFile(filepath.Join(dir, ".gitignore"))
 	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
-		return errors.Annotate(err, "io error: failed to read directory")
+		return
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
@@ -124,7 +123,6 @@ func (ss *SuperSearch) scanDir(dir string) error {
 		}
 	}
 	debug("Finished scanning directory %v", dir)
-	return nil
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
@@ -141,10 +139,10 @@ func (ss *SuperSearch) newWorker() {
 	}()
 }
 
-func (ss *SuperSearch) searchFile(path string) error {
+func (ss *SuperSearch) searchFile(path string) {
 	file, err := mmap.Open(path)
 	if err != nil {
-		return errors.Annotate(err, "Failed to open file with mmap")
+		return
 	}
 	defer file.Close()
 
@@ -152,12 +150,12 @@ func (ss *SuperSearch) searchFile(path string) error {
 
 	if isBin(file) {
 		debug("Skipping binary file")
-		return nil
+		return
 	}
 
 	if file.Len() == 0 {
 		debug("Skipping empty file")
-		return nil
+		return
 	}
 
 	var output strings.Builder
@@ -165,11 +163,9 @@ func (ss *SuperSearch) searchFile(path string) error {
 	lastIndex := 0
 	lineNo := 1
 	buf := make([]byte, file.Len())
-	bytesRead, err := file.ReadAt(buf, 0)
-
+	_, err = file.ReadAt(buf, 0)
 	if err != nil {
-		return errors.Annotate(err,
-			fmt.Sprint("Failed to read file", path+".", "Read", bytesRead, "bytes."))
+		return
 	}
 
 	for i := 0; i < len(buf); i++ {
@@ -212,8 +208,6 @@ func (ss *SuperSearch) searchFile(path string) error {
 	if !ss.opts.Quiet && output.Len() > 0 {
 		fmt.Print(output.String())
 	}
-
-	return nil
 }
 
 // Determine if file is binary by checking if it is valid utf8
