@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/jessevdk/go-flags"
 
@@ -27,10 +26,8 @@ func main() {
 
 	if len(args) == 0 {
 		parser.WriteHelp(os.Stdout)
-		return
-	}
-
-	if len(args) > 0 {
+		os.Exit(0)
+	} else {
 		pattern = args[0]
 	}
 
@@ -40,11 +37,14 @@ func main() {
 
 	if pattern == "" {
 		parser.WriteHelp(os.Stdout)
-		return
+		os.Exit(0)
 	}
 
 	if location == "" {
-		location = "." + string(filepath.Separator)
+		location, err = os.Getwd()
+		if err != nil {
+			fail(err)
+		}
 	}
 
 	if opts.Debug {

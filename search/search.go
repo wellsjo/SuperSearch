@@ -88,7 +88,7 @@ func (ss *SuperSearch) findFiles() error {
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.scanDir(&ss.opts.Location)
+		ss.scanDir(ss.opts.Location)
 	case mode.IsRegular():
 		ss.searchQueue <- &ss.opts.Location
 	}
@@ -96,10 +96,10 @@ func (ss *SuperSearch) findFiles() error {
 }
 
 // Recursively go through directory, sending all files into searchQueue
-func (ss *SuperSearch) scanDir(dir *string) error {
-	debug("Scanning directory %v", *dir)
-	ignores, _ := NewGitIgnoreFromFile(*dir + "/.gitignore")
-	dirInfo, err := ioutil.ReadDir(*dir)
+func (ss *SuperSearch) scanDir(dir string) error {
+	debug("Scanning directory %v", dir)
+	ignore, _ := NewGitIgnoreFromFile(filepath.Join(dir, ".gitignore"))
+	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return errors.Annotate(err, "io error: failed to read directory")
 	}
@@ -108,13 +108,13 @@ func (ss *SuperSearch) scanDir(dir *string) error {
 			debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
-		if ignores.Match(fi.Name()) {
+		if ignore.Match(fi.Name()) {
 			debug("skipping gitignore match %v", fi.Name())
 			continue
 		}
-		path := filepath.Join(*dir, fi.Name())
+		path := filepath.Join(dir, fi.Name())
 		if fi.IsDir() {
-			ss.scanDir(&path)
+			ss.scanDir(path)
 		} else if fi.Mode().IsRegular() {
 			ss.searchQueue <- &path
 			debug("Queuing %v", path)
@@ -123,7 +123,7 @@ func (ss *SuperSearch) scanDir(dir *string) error {
 			}
 		}
 	}
-	debug("Finished scanning directory %v", *dir)
+	debug("Finished scanning directory %v", dir)
 	return nil
 }
 
@@ -215,32 +215,33 @@ func (ss *SuperSearch) searchFile(path *string) error {
 	return nil
 }
 
-// Cheap (at the expense of being janky) way to determine if a file is binary
+// Determine if file is binary by checking if it is valid utf8
 func isBin(file *mmap.ReaderAt) bool {
-	var offsetLen int64 = int64(file.Len()) / 4
-	var offset int64 = 0
-	var buf = make([]byte, 4)
-	for i := 0; i < 4; i++ {
-		file.ReadAt(buf, offset)
-		if !utf8.Valid(buf) {
-			return true
-		}
-		offset += offsetLen
+	var (
+		offsetStart = file.Len() / 3
+		offsetEnd   = file.Len() / 2
+	)
+	var buf = make([]byte, offsetEnd-offsetStart)
+	file.ReadAt(buf, int64(offsetStart))
+	if !utf8.Valid(buf) {
+		return true
 	}
 	return false
 }
 
 func (ss *SuperSearch) printResults() {
-	p := message.NewPrinter(language.English)
-	matchesPlural := "s"
+	var (
+		p             = message.NewPrinter(language.English)
+		matchesPlural = "s"
+		filesPlural   = "s"
+	)
 	if ss.numMatches == 1 {
 		matchesPlural = ""
 	}
-	filesPlural := "s"
 	if ss.filesMatched == 1 {
 		filesPlural = ""
 	}
-	p.Printf("%v matche%s found in %v file%s (%v total)",
+	p.Printf("%v matche%s found in %v file%s (%v searched)",
 		ss.numMatches, matchesPlural, ss.filesMatched,
 		filesPlural, ss.filesSearched)
 }
