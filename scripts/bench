@@ -1,0 +1,6 @@
+#!/bin/bash
+
+t1=$(time ag test test > /dev/null)
+t2=$(time ss test test > /dev/null)
+
+echo $t1 $t2
