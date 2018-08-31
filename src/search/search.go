@@ -75,6 +75,7 @@ func New(opts *Options) *SuperSearch {
 	}
 }
 
+// Main program logic
 func (ss *SuperSearch) Run() {
 	go ss.processFiles()
 	ss.findFiles()
@@ -85,6 +86,9 @@ func (ss *SuperSearch) Run() {
 	}
 }
 
+// This runs in its own goroutine, and recieves files from ss.findFiles() through searchQueue.
+// When a file is recieved, it either gives it to a ready worker, or creates a new worker.
+// This will block if all workers are busy and numWorkers == maxWorkers.
 func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
@@ -250,10 +254,7 @@ func isBin(file *mmap.ReaderAt) bool {
 	)
 	var buf = make([]byte, offsetEnd-offsetStart)
 	file.ReadAt(buf, int64(offsetStart))
-	if !utf8.Valid(buf) {
-		return true
-	}
-	return false
+	return !utf8.Valid(buf)
 }
 
 func (ss *SuperSearch) printResults() {
