@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
@@ -40,6 +41,7 @@ type Options struct {
 	Hidden       bool `long:"hidden" description:"Search hidden files"`
 	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
 	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
+	Stats        bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
 }
 
 type SuperSearch struct {
@@ -55,6 +57,7 @@ type SuperSearch struct {
 	filesSearched uint64
 
 	wg         *sync.WaitGroup
+	duration   time.Duration
 	numWorkers uint64
 }
 
@@ -75,12 +78,14 @@ func New(opts *Options) *SuperSearch {
 
 // Main program logic
 func (ss *SuperSearch) Run() {
+	start := time.Now()
 	go ss.processFiles()
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
-	if !ss.opts.Quiet {
-		ss.printResults()
+	ss.duration = time.Since(start)
+	if ss.opts.Stats {
+		ss.printStats()
 	}
 }
 
@@ -151,7 +156,7 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
-		log.Debug("Testing %v against ignore rules", path)
+		log.Debug("Testing %v against ignore rules %v", path, m.Patterns())
 		if m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
 			continue
@@ -271,19 +276,8 @@ func isBin(file *mmap.ReaderAt) bool {
 	return !utf8.Valid(buf)
 }
 
-func (ss *SuperSearch) printResults() {
-	var (
-		p             = message.NewPrinter(language.English)
-		matchesPlural = "s"
-		filesPlural   = "s"
-	)
-	if ss.numMatches == 1 {
-		matchesPlural = ""
-	}
-	if ss.filesMatched == 1 {
-		filesPlural = ""
-	}
-	p.Printf("%v matche%s found in %v file%s (%v searched)",
-		ss.numMatches, matchesPlural, ss.filesMatched,
-		filesPlural, ss.filesSearched)
+func (ss *SuperSearch) printStats() {
+	p := message.NewPrinter(language.English)
+	p.Printf("%v matches\n%v files contained matches\n%v files searched\n%v seconds",
+		ss.numMatches, ss.filesMatched, ss.filesSearched, ss.duration.Seconds())
 }

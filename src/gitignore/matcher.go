@@ -7,6 +7,7 @@ type Matcher interface {
 	Match(path []string, isDir bool) bool
 
 	AddPatterns(ps []Pattern)
+	Patterns() []Pattern
 }
 
 // NewMatcher constructs a new global matcher. Patterns must be given in the order of
@@ -33,4 +34,8 @@ func (m *matcher) Match(path []string, isDir bool) bool {
 
 func (m *matcher) AddPatterns(ps []Pattern) {
 	m.patterns = append(m.patterns, ps...)
+}
+
+func (m *matcher) Patterns() []Pattern {
+	return m.patterns
 }
