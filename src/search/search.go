@@ -90,7 +90,6 @@ PROCESSLOOP:
 			log.Debug("Worker took file from queue")
 		default:
 			sf, ok := <-ss.searchQueue
-			log.Debug("sf %v %v", sf, ok)
 			if !ok {
 				break PROCESSLOOP
 			}
@@ -103,6 +102,7 @@ PROCESSLOOP:
 			ss.workerQueue <- sf
 		}
 	}
+	log.Debug("Closing worker queue...")
 	close(ss.workerQueue)
 }
 
@@ -158,11 +158,11 @@ func (ss *SuperSearch) newWorker() {
 	go func() {
 		for {
 			log.Debug("Worker %v waiting...", workerNum)
-			path, ok := <-ss.workerQueue
-			if !ok {
+			path := <-ss.workerQueue
+			if path == nil {
 				break
 			}
-			log.Debug("Worker %v searching %v", workerNum, path)
+			log.Debug("Worker %v searching %v", workerNum, *path)
 			ss.searchFile(path)
 		}
 		log.Debug("Worker %v finished", workerNum)
