@@ -126,7 +126,6 @@ func (ss *SuperSearch) findFiles() {
 		log.Fail(err.Error())
 	}
 	ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
-	log.Debug("Loaded patterns %v", ps)
 	m := gitignore.NewMatcher(ps)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
@@ -156,7 +155,7 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
-		log.Debug("Testing %v against ignore rules %v", path, m.Patterns())
+		log.Debug("Testing %v against ignore rules", path)
 		if m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
 			continue
