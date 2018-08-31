@@ -1,5 +1,5 @@
 .PHONY: all
-all: build dist test install
+all: build dist install
 
 .PHONY:
 build:

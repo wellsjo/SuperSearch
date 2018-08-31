@@ -1,8 +1,10 @@
-package search
+package log
 
 import (
 	"log"
 	"os"
+
+	"github.com/fatih/color"
 )
 
 var (
@@ -10,6 +12,8 @@ var (
 	debugMode string
 	// Set at run time
 	DebugMode bool
+
+	highlightError = color.New(color.FgRed).Add(color.Bold)
 )
 
 func init() {
@@ -18,13 +22,13 @@ func init() {
 	}
 }
 
-func debug(a string, s ...interface{}) {
+func Debug(a string, s ...interface{}) {
 	if DebugMode {
 		log.Printf(a, s...)
 	}
 }
 
-func fail(s ...interface{}) {
-	log.Println(s...)
+func Fail(a string, s ...interface{}) {
+	highlightError.Sprintf(a, s...)
 	os.Exit(1)
 }
