@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -95,7 +96,7 @@ PROCESSLOOP:
 		}
 		select {
 		case ss.workerQueue <- p:
-			log.Debug("Worker took file from queue")
+			// no-op
 		default:
 			if int(ss.numWorkers) < maxConcurrency {
 				log.Debug("Workers busy; Creating new worker")
@@ -115,7 +116,12 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail("invalid location input %v", ss.opts.Location)
 	}
-	ps, _ := gitignore.LoadGlobalPatterns()
+	usr, err := user.Current()
+	if err != nil {
+		log.Fail(err.Error())
+	}
+	ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
+	log.Debug("Loaded patterns %v", ps)
 	m := gitignore.NewMatcher(ps)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
@@ -134,7 +140,7 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		return
 	}
 
-	ps2, _ := gitignore.LoadPatterns(dir + ".gitignore")
+	ps2, _ := gitignore.ReadIgnoreFile(filepath.Join(dir, ".gitignore"))
 	if len(ps2) > 0 {
 		m.AddPatterns(ps2)
 	}
@@ -145,7 +151,8 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
-		if m.Match(strings.Split(path, separator), fi.IsDir()) {
+		log.Debug("Testing %v against ignore rules", path)
+		if m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
 			continue
 		}
@@ -172,6 +179,7 @@ func (ss *SuperSearch) newWorker() {
 		for {
 			log.Debug("Worker %v ready...", workerNum)
 			path := <-ss.workerQueue
+			log.Debug("Worker %v took file from queue", workerNum)
 			if path == nil {
 				break
 			}
