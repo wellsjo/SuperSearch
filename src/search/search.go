@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"github.com/wellsjo/SuperSearch/src/log"
 	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -46,8 +47,11 @@ type Options struct {
 type SuperSearch struct {
 	opts *Options
 
-	searchRegexp  *regexp.Regexp
-	searchQueue   chan *string
+	searchRegexp *regexp.Regexp
+
+	searchQueue chan *string
+	workerQueue chan *string
+
 	numMatches    uint64
 	filesMatched  uint64
 	filesSearched uint64
@@ -57,33 +61,58 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
-	debug("Searching %q for %q", opts.Location, opts.Pattern)
+	if opts.Debug {
+		log.DebugMode = true
+	}
+	log.Debug("Searching %q for %q", opts.Location, opts.Pattern)
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 		opts:         opts,
 
-		// Allow enough files in the buffer so that there will always be plenty
-		// for the worker threads. This is an arbitrary large number.
-		searchQueue: make(chan *string, 4096),
+		searchQueue: make(chan *string),
+		workerQueue: make(chan *string),
 		wg:          new(sync.WaitGroup),
 	}
 }
 
-func (ss *SuperSearch) Run() error {
-	ss.newWorker()
+func (ss *SuperSearch) Run() {
+	go ss.processFiles()
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
 	if !ss.opts.Quiet {
 		ss.printResults()
 	}
-	return nil
 }
 
-func (ss *SuperSearch) findFiles() error {
+func (ss *SuperSearch) processFiles() {
+PROCESSLOOP:
+	for {
+		p := <-ss.searchQueue
+		if p == nil {
+			break PROCESSLOOP
+		}
+		select {
+		case ss.workerQueue <- p:
+			log.Debug("Worker took file from queue")
+		default:
+			if int(ss.numWorkers) < maxConcurrency {
+				log.Debug("Workers busy; Creating new worker")
+				ss.newWorker()
+			} else {
+				log.Debug("Workers busy and can't create more; Waiting...")
+			}
+			ss.workerQueue <- p
+		}
+	}
+	log.Debug("Closing worker queue...")
+	close(ss.workerQueue)
+}
+
+func (ss *SuperSearch) findFiles() {
 	fi, err := os.Stat(ss.opts.Location)
 	if err != nil {
-		return err
+		log.Fail("invalid location input %v", ss.opts.Location)
 	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
@@ -91,12 +120,11 @@ func (ss *SuperSearch) findFiles() error {
 	case mode.IsRegular():
 		ss.searchQueue <- &ss.opts.Location
 	}
-	return nil
 }
 
 // Recursively go through directory, sending all files into searchQueue
 func (ss *SuperSearch) scanDir(dir string) {
-	debug("Scanning directory %v", dir)
+	log.Debug("Scanning directory %v", dir)
 	ignore, _ := NewGitIgnoreFromFile(filepath.Join(dir, ".gitignore"))
 	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -104,57 +132,61 @@ func (ss *SuperSearch) scanDir(dir string) {
 	}
 	for _, fi := range dirInfo {
 		if fi.Name()[0] == '.' {
-			debug("Skipping hidden file %v", fi.Name())
+			log.Debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
 		if ignore.Match(fi.Name()) {
-			debug("skipping gitignore match %v", fi.Name())
+			log.Debug("skipping gitignore match %v", fi.Name())
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
 		if fi.IsDir() {
 			ss.scanDir(path)
 		} else if fi.Mode().IsRegular() {
+			atomic.AddUint64(&ss.filesSearched, 1)
+			log.Debug("Queuing %v", path)
 			ss.searchQueue <- &path
-			debug("Queuing %v", path)
-			if maxConcurrency > int(ss.numWorkers) && len(ss.searchQueue) > 1 {
-				ss.newWorker()
-			}
 		}
 	}
-	debug("Finished scanning directory %v", dir)
+	log.Debug("Finished scanning directory %v", dir)
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
 func (ss *SuperSearch) newWorker() {
 	atomic.AddUint64(&ss.numWorkers, 1)
-	debug("Started worker %v", ss.numWorkers)
+	workerNum := ss.numWorkers
+	log.Debug("Started worker %v", ss.numWorkers)
 	ss.wg.Add(1)
 	go func() {
-		for path := range ss.searchQueue {
-			ss.searchFile(*path)
+		for {
+			log.Debug("Worker %v ready...", workerNum)
+			path := <-ss.workerQueue
+			if path == nil {
+				break
+			}
+			log.Debug("Worker %v searching %v", workerNum, *path)
+			ss.searchFile(path)
 		}
+		log.Debug("Worker %v finished", workerNum)
 		ss.wg.Done()
 	}()
 }
 
-func (ss *SuperSearch) searchFile(path string) {
-	file, err := mmap.Open(path)
+func (ss *SuperSearch) searchFile(path *string) {
+	file, err := mmap.Open(*path)
 	if err != nil {
 		return
 	}
 	defer file.Close()
 
-	atomic.AddUint64(&ss.filesSearched, 1)
-
 	if isBin(file) {
-		debug("Skipping binary file")
+		log.Debug("Skipping binary file")
 		return
 	}
 
 	if file.Len() == 0 {
-		debug("Skipping empty file")
+		log.Debug("Skipping empty file")
 		return
 	}
 
@@ -177,7 +209,7 @@ func (ss *SuperSearch) searchFile(path string) {
 				if !matchFound {
 					matchFound = true
 					atomic.AddUint64(&ss.filesMatched, 1)
-					output.WriteString(highlightFile.Sprintf("%v\n", path))
+					output.WriteString(highlightFile.Sprintf("%v\n", *path))
 				}
 
 				atomic.AddUint64(&ss.numMatches, 1)

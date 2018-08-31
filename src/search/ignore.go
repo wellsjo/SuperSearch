@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/wellsjo/SuperSearch/src/log"
 	"golang.org/x/exp/mmap"
 )
 
@@ -51,7 +52,7 @@ func (ig *GitIgnore) AddIgnorePattern(pattern string) {
 }
 
 func (ig *GitIgnore) Match(filename string) bool {
-	debug("Testing %v against .gitignore", filename)
+	log.Debug("Testing %v against .gitignore", filename)
 	for _, p := range ig.ignorePatterns {
 		if matched, _ := filepath.Match(p, filename); matched {
 			return true

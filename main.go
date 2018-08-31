@@ -1,12 +1,12 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/jessevdk/go-flags"
 
-	"github.com/wellsjo/SuperSearch/search"
+	"github.com/wellsjo/SuperSearch/src/log"
+	"github.com/wellsjo/SuperSearch/src/search"
 )
 
 func main() {
@@ -21,7 +21,7 @@ func main() {
 	args, err := parser.Parse()
 
 	if err != nil {
-		fail(err)
+		log.Fail(err.Error())
 	}
 
 	if len(args) == 0 {
@@ -43,30 +43,16 @@ func main() {
 	if location == "" {
 		location, err = os.Getwd()
 		if err != nil {
-			fail(err)
+			log.Fail(err.Error())
 		}
 	}
 
-	if opts.Debug {
-		search.DebugMode = true
-	}
-
-	ss := search.New(&search.Options{
+	search.New(&search.Options{
 		Pattern:      pattern,
 		Location:     location,
 		Quiet:        opts.Quiet,
 		Hidden:       opts.Hidden,
 		Unrestricted: opts.Unrestricted,
 		Debug:        opts.Debug,
-	})
-
-	err = ss.Run()
-	if err != nil {
-		fail(err)
-	}
-}
-
-func fail(s ...interface{}) {
-	log.Println(s...)
-	os.Exit(1)
+	}).Run()
 }
