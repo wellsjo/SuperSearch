@@ -3,10 +3,10 @@ all: build dist install
 
 .PHONY:
 build:
-	go build --race -ldflags "-X github.com/wellsjo/SuperSearch/src/log/log.debugMode=true" -o bin/ss main.go
+	go build --race -o bin/ss main.go
 
 dist:
-	go build -ldflags "-X github.com/wellsjo/SuperSearch/src/log/log.debugMode=false" -o bin/dist main.go
+	go build -o bin/dist main.go
 
 .PHONY: test
 test:

@@ -8,19 +8,10 @@ import (
 )
 
 var (
-	// Set at compile time with -ldflags
-	debugMode string
-	// Set at run time
 	DebugMode bool
 
 	highlightError = color.New(color.FgRed).Add(color.Bold)
 )
-
-func init() {
-	if debugMode == "true" {
-		DebugMode = true
-	}
-}
 
 func Debug(a string, s ...interface{}) {
 	if DebugMode {
