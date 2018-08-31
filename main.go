@@ -47,10 +47,6 @@ func main() {
 		}
 	}
 
-	if opts.Debug {
-		log.DebugMode = true
-	}
-
 	search.New(&search.Options{
 		Pattern:      pattern,
 		Location:     location,

@@ -61,6 +61,9 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
+	if opts.Debug {
+		log.DebugMode = true
+	}
 	log.Debug("Searching %q for %q", opts.Location, opts.Pattern)
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.Pattern),
@@ -85,21 +88,21 @@ func (ss *SuperSearch) Run() {
 func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
+		p := <-ss.searchQueue
+		if p == nil {
+			break PROCESSLOOP
+		}
 		select {
-		case ss.workerQueue <- <-ss.searchQueue:
+		case ss.workerQueue <- p:
 			log.Debug("Worker took file from queue")
 		default:
-			sf, ok := <-ss.searchQueue
-			if !ok {
-				break PROCESSLOOP
-			}
 			if int(ss.numWorkers) < maxConcurrency {
 				log.Debug("Workers busy; Creating new worker")
 				ss.newWorker()
 			} else {
 				log.Debug("Workers busy and can't create more; Waiting...")
 			}
-			ss.workerQueue <- sf
+			ss.workerQueue <- p
 		}
 	}
 	log.Debug("Closing worker queue...")
@@ -157,7 +160,7 @@ func (ss *SuperSearch) newWorker() {
 	ss.wg.Add(1)
 	go func() {
 		for {
-			log.Debug("Worker %v waiting...", workerNum)
+			log.Debug("Worker %v ready...", workerNum)
 			path := <-ss.workerQueue
 			if path == nil {
 				break
