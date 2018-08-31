@@ -1,6 +1,12 @@
 #!/bin/bash
 
+echo -e "\nag:"
 t1=$(time ag test test > /dev/null)
-t2=$(time ss test test > /dev/null)
 
-echo $t1 $t2
+echo -e "\nrg:"
+t2=$(time rg test test > /dev/null)
+
+echo -e "\nss:"
+t3=$(time ss test test > /dev/null)
+
+echo $t1 $t2 $t3

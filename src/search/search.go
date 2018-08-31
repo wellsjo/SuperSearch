@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"github.com/wellsjo/SuperSearch/src/gitignore"
 	"github.com/wellsjo/SuperSearch/src/log"
 	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
@@ -20,13 +21,9 @@ import (
 )
 
 var (
-	ignoreFilePatterns   = []string{}
-	globalIgnoreFiles    = [...]string{".gitignore_global"}
-	ignoreFiles          = [...]string{".gitignore"}
-	globalIgnorePatterns = []*regexp.Regexp{}
-
-	// Setting max concurrency to # cpu cores gives best results
+	// Setting maxConcurrency to # cpu cores gives best benchmark results
 	maxConcurrency = runtime.NumCPU()
+	separator      = string(filepath.Separator)
 
 	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
 	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
@@ -118,40 +115,49 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail("invalid location input %v", ss.opts.Location)
 	}
+	ps, _ := gitignore.LoadGlobalPatterns()
+	m := gitignore.NewMatcher(ps)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.scanDir(ss.opts.Location)
+		ss.scanDir(ss.opts.Location, m)
 	case mode.IsRegular():
 		ss.searchQueue <- &ss.opts.Location
 	}
 }
 
 // Recursively go through directory, sending all files into searchQueue
-func (ss *SuperSearch) scanDir(dir string) {
+func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 	log.Debug("Scanning directory %v", dir)
-	ignore, _ := NewGitIgnoreFromFile(filepath.Join(dir, ".gitignore"))
+
 	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return
 	}
+
+	ps2, _ := gitignore.LoadPatterns(dir + ".gitignore")
+	if len(ps2) > 0 {
+		m.AddPatterns(ps2)
+	}
+
 	for _, fi := range dirInfo {
-		if fi.Name()[0] == '.' {
+		if !ss.opts.Hidden && fi.Name()[0] == '.' {
 			log.Debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
-		if ignore.Match(fi.Name()) {
-			log.Debug("skipping gitignore match %v", fi.Name())
+		path := filepath.Join(dir, fi.Name())
+		if m.Match(strings.Split(path, separator), fi.IsDir()) {
+			log.Debug("Skipping gitignore match: %v", path)
 			continue
 		}
-		path := filepath.Join(dir, fi.Name())
 		if fi.IsDir() {
-			ss.scanDir(path)
+			ss.scanDir(path, m)
 		} else if fi.Mode().IsRegular() {
 			atomic.AddUint64(&ss.filesSearched, 1)
 			log.Debug("Queuing %v", path)
 			ss.searchQueue <- &path
 		}
 	}
+
 	log.Debug("Finished scanning directory %v", dir)
 }
 

@@ -5,6 +5,8 @@ type Matcher interface {
 	// Match matches patterns in the order of priorities. As soon as an inclusion or
 	// exclusion is found, not further matching is performed.
 	Match(path []string, isDir bool) bool
+
+	AddPatterns(ps []Pattern)
 }
 
 // NewMatcher constructs a new global matcher. Patterns must be given in the order of
@@ -27,4 +29,8 @@ func (m *matcher) Match(path []string, isDir bool) bool {
 		}
 	}
 	return false
+}
+
+func (m *matcher) AddPatterns(ps []Pattern) {
+	m.patterns = append(m.patterns, ps...)
 }

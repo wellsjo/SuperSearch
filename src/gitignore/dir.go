@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/src-d/go-billy.v4"
@@ -24,8 +25,8 @@ const (
 )
 
 // readIgnoreFile reads a specific git ignore file.
-func readIgnoreFile(fs billy.Filesystem, path []string, ignoreFile string) (ps []Pattern, err error) {
-	f, err := fs.Open(fs.Join(append(path, ignoreFile)...))
+func readIgnoreFile(path []string, ignoreFile string) (ps []Pattern, err error) {
+	f, err := os.Open(filepath.Join(append(path, ignoreFile)...))
 	if err == nil {
 		defer f.Close()
 
@@ -45,11 +46,11 @@ func readIgnoreFile(fs billy.Filesystem, path []string, ignoreFile string) (ps [
 
 // ReadPatterns reads gitignore patterns recursively traversing through the directory
 // structure. The result is in the ascending order of priority (last higher).
-func ReadPatterns(fs billy.Filesystem, path []string) (ps []Pattern, err error) {
-	ps, _ = readIgnoreFile(fs, path, gitignoreFile)
+func ReadPatterns(path []string) (ps []Pattern, err error) {
+	ps, _ = readIgnoreFile(path, gitignoreFile)
 
 	var fis []os.FileInfo
-	fis, err = fs.ReadDir(fs.Join(path...))
+	fis, err = ioutil.ReadDir(filepath.Join(path...))
 	if err != nil {
 		return
 	}
@@ -57,7 +58,7 @@ func ReadPatterns(fs billy.Filesystem, path []string) (ps []Pattern, err error) 
 	for _, fi := range fis {
 		if fi.IsDir() && fi.Name() != gitDir {
 			var subps []Pattern
-			subps, err = ReadPatterns(fs, append(path, fi.Name()))
+			subps, err = ReadPatterns(append(path, fi.Name()))
 			if err != nil {
 				return
 			}
@@ -71,8 +72,8 @@ func ReadPatterns(fs billy.Filesystem, path []string) (ps []Pattern, err error) 
 	return
 }
 
-func loadPatterns(fs billy.Filesystem, path string) (ps []Pattern, err error) {
-	f, err := fs.Open(path)
+func LoadPatterns(path string) (ps []Pattern, err error) {
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -100,7 +101,7 @@ func loadPatterns(fs billy.Filesystem, path string) (ps []Pattern, err error) {
 		return nil, nil
 	}
 
-	ps, err = readIgnoreFile(fs, nil, efo)
+	ps, err = readIgnoreFile(nil, efo)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -115,13 +116,13 @@ func loadPatterns(fs billy.Filesystem, path string) (ps []Pattern, err error) {
 // the core.excludesfile property does not exist, the function will return nil.
 //
 // The function assumes fs is rooted at the root filesystem.
-func LoadGlobalPatterns(fs billy.Filesystem) (ps []Pattern, err error) {
+func LoadGlobalPatterns() (ps []Pattern, err error) {
 	usr, err := user.Current()
 	if err != nil {
 		return
 	}
 
-	return loadPatterns(fs, fs.Join(usr.HomeDir, gitconfigFile))
+	return LoadPatterns(filepath.Join(usr.HomeDir, gitconfigFile))
 }
 
 // LoadSystemPatterns loads gitignore patterns from from the gitignore file
@@ -132,5 +133,5 @@ func LoadGlobalPatterns(fs billy.Filesystem) (ps []Pattern, err error) {
 //
 // The function assumes fs is rooted at the root filesystem.
 func LoadSystemPatterns(fs billy.Filesystem) (ps []Pattern, err error) {
-	return loadPatterns(fs, systemFile)
+	return LoadPatterns(systemFile)
 }
