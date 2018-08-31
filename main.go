@@ -54,5 +54,6 @@ func main() {
 		Hidden:       opts.Hidden,
 		Unrestricted: opts.Unrestricted,
 		Debug:        opts.Debug,
+		Stats:        opts.Stats,
 	}).Run()
 }

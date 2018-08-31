@@ -17,12 +17,13 @@ var linesPerFile1 = 10
 var numFiles2 = 100
 var linesPerFile2 = 1000
 var testDir = setupSearchFolder(numFiles1, linesPerFile1)
-var testDir2 = setupSearchFolder(numFiles2, linesPerFile2)
+
+// var testDir2 = setupSearchFolder(numFiles2, linesPerFile2)
 
 func TestMain(m *testing.M) {
 	defer func() {
 		os.Remove(testDir)
-		os.Remove(testDir2)
+		// os.Remove(testDir2)
 	}()
 	os.Exit(m.Run())
 }

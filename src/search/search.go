@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
+	"github.com/wellsjo/SuperSearch/src/gitignore"
 	"github.com/wellsjo/SuperSearch/src/log"
 	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
@@ -20,13 +23,9 @@ import (
 )
 
 var (
-	ignoreFilePatterns   = []string{}
-	globalIgnoreFiles    = [...]string{".gitignore_global"}
-	ignoreFiles          = [...]string{".gitignore"}
-	globalIgnorePatterns = []*regexp.Regexp{}
-
-	// Setting max concurrency to # cpu cores gives best results
+	// Setting maxConcurrency to # cpu cores gives best benchmark results
 	maxConcurrency = runtime.NumCPU()
+	separator      = string(filepath.Separator)
 
 	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
 	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
@@ -42,6 +41,7 @@ type Options struct {
 	Hidden       bool `long:"hidden" description:"Search hidden files"`
 	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
 	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
+	Stats        bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
 }
 
 type SuperSearch struct {
@@ -57,6 +57,7 @@ type SuperSearch struct {
 	filesSearched uint64
 
 	wg         *sync.WaitGroup
+	duration   time.Duration
 	numWorkers uint64
 }
 
@@ -77,12 +78,14 @@ func New(opts *Options) *SuperSearch {
 
 // Main program logic
 func (ss *SuperSearch) Run() {
+	start := time.Now()
 	go ss.processFiles()
 	ss.findFiles()
 	close(ss.searchQueue)
 	ss.wg.Wait()
-	if !ss.opts.Quiet {
-		ss.printResults()
+	ss.duration = time.Since(start)
+	if ss.opts.Stats {
+		ss.printStats()
 	}
 }
 
@@ -98,7 +101,7 @@ PROCESSLOOP:
 		}
 		select {
 		case ss.workerQueue <- p:
-			log.Debug("Worker took file from queue")
+			// no-op
 		default:
 			if int(ss.numWorkers) < maxConcurrency {
 				log.Debug("Workers busy; Creating new worker")
@@ -118,40 +121,54 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail("invalid location input %v", ss.opts.Location)
 	}
+	usr, err := user.Current()
+	if err != nil {
+		log.Fail(err.Error())
+	}
+	ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
+	m := gitignore.NewMatcher(ps)
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
-		ss.scanDir(ss.opts.Location)
+		ss.scanDir(ss.opts.Location, m)
 	case mode.IsRegular():
 		ss.searchQueue <- &ss.opts.Location
 	}
 }
 
 // Recursively go through directory, sending all files into searchQueue
-func (ss *SuperSearch) scanDir(dir string) {
+func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 	log.Debug("Scanning directory %v", dir)
-	ignore, _ := NewGitIgnoreFromFile(filepath.Join(dir, ".gitignore"))
+
 	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return
 	}
+
+	ps2, _ := gitignore.ReadIgnoreFile(filepath.Join(dir, ".gitignore"))
+	if len(ps2) > 0 {
+		m.AddPatterns(ps2)
+	}
+
 	for _, fi := range dirInfo {
-		if fi.Name()[0] == '.' {
+		if !ss.opts.Hidden && fi.Name()[0] == '.' {
 			log.Debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
-		if ignore.Match(fi.Name()) {
-			log.Debug("skipping gitignore match %v", fi.Name())
+		path := filepath.Join(dir, fi.Name())
+		log.Debug("Testing %v against ignore rules", path)
+		if m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
+			log.Debug("Skipping gitignore match: %v", path)
 			continue
 		}
-		path := filepath.Join(dir, fi.Name())
 		if fi.IsDir() {
-			ss.scanDir(path)
+			ss.scanDir(path, m)
 		} else if fi.Mode().IsRegular() {
 			atomic.AddUint64(&ss.filesSearched, 1)
 			log.Debug("Queuing %v", path)
 			ss.searchQueue <- &path
 		}
 	}
+
 	log.Debug("Finished scanning directory %v", dir)
 }
 
@@ -166,6 +183,7 @@ func (ss *SuperSearch) newWorker() {
 		for {
 			log.Debug("Worker %v ready...", workerNum)
 			path := <-ss.workerQueue
+			log.Debug("Worker %v took file from queue", workerNum)
 			if path == nil {
 				break
 			}
@@ -257,19 +275,8 @@ func isBin(file *mmap.ReaderAt) bool {
 	return !utf8.Valid(buf)
 }
 
-func (ss *SuperSearch) printResults() {
-	var (
-		p             = message.NewPrinter(language.English)
-		matchesPlural = "s"
-		filesPlural   = "s"
-	)
-	if ss.numMatches == 1 {
-		matchesPlural = ""
-	}
-	if ss.filesMatched == 1 {
-		filesPlural = ""
-	}
-	p.Printf("%v matche%s found in %v file%s (%v searched)",
-		ss.numMatches, matchesPlural, ss.filesMatched,
-		filesPlural, ss.filesSearched)
+func (ss *SuperSearch) printStats() {
+	p := message.NewPrinter(language.English)
+	p.Printf("%v matches\n%v files contained matches\n%v files searched\n%v seconds",
+		ss.numMatches, ss.filesMatched, ss.filesSearched, ss.duration.Seconds())
 }
