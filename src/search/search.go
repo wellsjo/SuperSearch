@@ -63,6 +63,8 @@ type SuperSearch struct {
 	workerQueue chan *searchFile
 	printQueue  chan *printFile
 
+	skipFiles map[uint64]struct{}
+
 	numMatches    uint64
 	filesMatched  uint64
 	filesSearched uint64
@@ -84,7 +86,10 @@ func New(opts *Options) *SuperSearch {
 		searchQueue: make(chan *searchFile),
 		workerQueue: make(chan *searchFile),
 		printQueue:  make(chan *printFile),
-		wg:          new(sync.WaitGroup),
+
+		skipFiles: make(map[uint64]struct{}),
+
+		wg: new(sync.WaitGroup),
 	}
 }
 
@@ -167,6 +172,13 @@ func (ss *SuperSearch) printLoop() {
 		}
 		output.Reset()
 		print[p.index] = p.output
+		for {
+			if _, ok := ss.skipFiles[i]; ok {
+				i++
+			} else {
+				break
+			}
+		}
 		for {
 			out, ok := print[i]
 			if ok {
@@ -279,6 +291,7 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 
 	file, err := mmap.Open(sf.path)
 	if err != nil {
+		log.Debug("Failed to open file %v", sf.path)
 		return
 	}
 	defer file.Close()
@@ -342,13 +355,12 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 
 	if matchFound {
 		output.WriteRune('\n')
-	}
-
-	if output.Len() > 0 {
 		ss.printQueue <- &printFile{
 			output: output.String(),
 			index:  sf.index,
 		}
+	} else {
+		ss.skipFiles[sf.index] = struct{}{}
 	}
 }
 
