@@ -93,20 +93,25 @@ func (ss *SuperSearch) Run() {
 	start := time.Now()
 	go ss.processFiles()
 	go ss.printLoop()
+
+	// Synchronously finds files and send them into searchQueue,
+	// which are then processed by the processFiles goroutine
 	ss.findFiles()
+
+	// 1 is added to the WaitGroup for every file processed, then
+	// Done() is called after each file is searched.
 	ss.wg.Wait()
 
-	// Workers have finished
+	// All files have been processed, so we can close these
 	close(ss.searchQueue)
 
+	// Wait for printing to finish before exiting
 	ss.wg.Add(1)
-
 	close(ss.printQueue)
-
 	ss.wg.Wait()
 
-	ss.duration = time.Since(start)
 	if ss.opts.Stats {
+		ss.duration = time.Since(start)
 		ss.printStats()
 	}
 }
@@ -136,23 +141,32 @@ PROCESSLOOP:
 			ss.workerQueue <- p
 		}
 	}
-	log.Debug("Closing worker queue...")
 	close(ss.workerQueue)
 }
 
-// This runs in its own goroutine.
+// This runs in its own goroutine, receiving output strings and indexes.
+// As the print loop receives output, it is cached until the current index
+// is received. Once that happens, the printer will attempt to concatonate
+// the next n subsequent outputs into one string builder for efficiency
+// while maintaining order.
 func (ss *SuperSearch) printLoop() {
 	var (
-		i     uint64 = 1
-		print        = make(map[uint64]string)
+		// Mapping of indexes to output strings
+		print = make(map[uint64]string)
+
+		// The current print index. The printer will wait until this
+		// is recieved before attemptint to print.
+		i uint64 = 1
+
+		output strings.Builder
 	)
 	for {
 		p := <-ss.printQueue
 		if p == nil {
 			break
 		}
+		output.Reset()
 		print[p.index] = p.output
-		var output strings.Builder
 		for {
 			out, ok := print[i]
 			if ok {
@@ -220,7 +234,6 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
-		log.Debug("Testing %v against ignore rules", path)
 		if !ss.opts.Unrestricted && m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
 			continue
@@ -262,7 +275,6 @@ func (ss *SuperSearch) newWorker() {
 }
 
 func (ss *SuperSearch) searchFile(sf *searchFile) {
-	log.Debug("Opening %v", sf.path)
 	defer ss.wg.Done()
 
 	file, err := mmap.Open(sf.path)
