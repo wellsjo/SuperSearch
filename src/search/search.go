@@ -44,13 +44,24 @@ type Options struct {
 	Stats        bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
 }
 
+type searchFile struct {
+	path  string
+	index uint64
+}
+
+type printFile struct {
+	output string
+	index  uint64
+}
+
 type SuperSearch struct {
 	opts *Options
 
 	searchRegexp *regexp.Regexp
 
-	searchQueue chan *string
-	workerQueue chan *string
+	searchQueue chan *searchFile
+	workerQueue chan *searchFile
+	printQueue  chan *printFile
 
 	numMatches    uint64
 	filesMatched  uint64
@@ -70,8 +81,9 @@ func New(opts *Options) *SuperSearch {
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 		opts:         opts,
 
-		searchQueue: make(chan *string),
-		workerQueue: make(chan *string),
+		searchQueue: make(chan *searchFile),
+		workerQueue: make(chan *searchFile),
+		printQueue:  make(chan *printFile),
 		wg:          new(sync.WaitGroup),
 	}
 }
@@ -80,9 +92,19 @@ func New(opts *Options) *SuperSearch {
 func (ss *SuperSearch) Run() {
 	start := time.Now()
 	go ss.processFiles()
+	go ss.printLoop()
 	ss.findFiles()
-	close(ss.searchQueue)
 	ss.wg.Wait()
+
+	// Workers have finished
+	close(ss.searchQueue)
+
+	ss.wg.Add(1)
+
+	close(ss.printQueue)
+
+	ss.wg.Wait()
+
 	ss.duration = time.Since(start)
 	if ss.opts.Stats {
 		ss.printStats()
@@ -95,10 +117,12 @@ func (ss *SuperSearch) Run() {
 func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
+		log.Debug("Waiting on search queue..")
 		p := <-ss.searchQueue
 		if p == nil {
 			break PROCESSLOOP
 		}
+		log.Debug("Processing %v", p.path)
 		select {
 		case ss.workerQueue <- p:
 			// no-op
@@ -116,6 +140,37 @@ PROCESSLOOP:
 	close(ss.workerQueue)
 }
 
+// This runs in its own goroutine.
+func (ss *SuperSearch) printLoop() {
+	var (
+		i     uint64 = 1
+		print        = make(map[uint64]string)
+	)
+	for {
+		p := <-ss.printQueue
+		if p == nil {
+			break
+		}
+		print[p.index] = p.output
+		var output strings.Builder
+		for {
+			out, ok := print[i]
+			if ok {
+				log.Debug("Adding output to string builder")
+				output.WriteString(out)
+				i++
+			} else {
+				break
+			}
+		}
+		if output.Len() > 0 {
+			fmt.Print(output.String())
+		}
+	}
+	log.Debug("Print loop done")
+	ss.wg.Done()
+}
+
 func (ss *SuperSearch) findFiles() {
 	fi, err := os.Stat(ss.opts.Location)
 	if err != nil {
@@ -125,16 +180,21 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail(err.Error())
 	}
-	var m gitignore.Matcher
-	if !ss.opts.Unrestricted {
-		ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
-		m = gitignore.NewMatcher(ps)
-	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
+		var m gitignore.Matcher
+		if !ss.opts.Unrestricted {
+			ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
+			m = gitignore.NewMatcher(ps)
+		}
 		ss.scanDir(ss.opts.Location, m)
 	case mode.IsRegular():
-		ss.searchQueue <- &ss.opts.Location
+		log.Debug("Queuing %v", ss.opts.Location)
+		ss.wg.Add(1)
+		ss.searchQueue <- &searchFile{
+			path:  ss.opts.Location,
+			index: 1,
+		}
 	}
 }
 
@@ -168,11 +228,13 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		if fi.IsDir() {
 			ss.scanDir(path, m)
 		} else if fi.Mode().IsRegular() {
-			if ss.opts.Stats {
-				atomic.AddUint64(&ss.filesSearched, 1)
-			}
+			atomic.AddUint64(&ss.filesSearched, 1)
 			log.Debug("Queuing %v", path)
-			ss.searchQueue <- &path
+			ss.wg.Add(1)
+			ss.searchQueue <- &searchFile{
+				path:  path,
+				index: ss.filesSearched,
+			}
 		}
 	}
 
@@ -182,30 +244,28 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
 func (ss *SuperSearch) newWorker() {
-	if ss.opts.Stats {
-		atomic.AddUint64(&ss.numWorkers, 1)
-	}
+	atomic.AddUint64(&ss.numWorkers, 1)
 	workerNum := ss.numWorkers
 	log.Debug("Started worker %v", ss.numWorkers)
-	ss.wg.Add(1)
 	go func() {
 		for {
 			log.Debug("Worker %v ready...", workerNum)
-			path := <-ss.workerQueue
-			log.Debug("Worker %v took file from queue", workerNum)
-			if path == nil {
+			sf := <-ss.workerQueue
+			if sf == nil {
 				break
 			}
-			log.Debug("Worker %v searching %v", workerNum, *path)
-			ss.searchFile(path)
+			log.Debug("Worker %v searching %v", workerNum, sf.path)
+			ss.searchFile(sf)
 		}
 		log.Debug("Worker %v finished", workerNum)
-		ss.wg.Done()
 	}()
 }
 
-func (ss *SuperSearch) searchFile(path *string) {
-	file, err := mmap.Open(*path)
+func (ss *SuperSearch) searchFile(sf *searchFile) {
+	log.Debug("Opening %v", sf.path)
+	defer ss.wg.Done()
+
+	file, err := mmap.Open(sf.path)
 	if err != nil {
 		return
 	}
@@ -242,7 +302,7 @@ func (ss *SuperSearch) searchFile(path *string) {
 					if ss.opts.Stats {
 						atomic.AddUint64(&ss.filesMatched, 1)
 					}
-					output.WriteString(highlightFile.Sprintf("%v\n", *path))
+					output.WriteString(highlightFile.Sprintf("%v\n", sf.path))
 				}
 
 				if ss.opts.Stats {
@@ -272,8 +332,11 @@ func (ss *SuperSearch) searchFile(path *string) {
 		output.WriteRune('\n')
 	}
 
-	if !ss.opts.Quiet && output.Len() > 0 {
-		fmt.Print(output.String())
+	if output.Len() > 0 {
+		ss.printQueue <- &printFile{
+			output: output.String(),
+			index:  sf.index,
+		}
 	}
 }
 
