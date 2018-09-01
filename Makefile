@@ -13,7 +13,10 @@ test:
 	go test -v ./...
 
 bench:
-	go test -bench "Search" ./...
+	go test -bench=. src/search/* -benchmem -memprofile memprofile.out -cpuprofile cpuprofile.out
+
+profile:
+	pprof -top bin/ss profile.pb.gz
 
 .PHONY: install
 install: dist

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wellsjo/SuperSearch/src/gitignore"
 	"github.com/wellsjo/SuperSearch/src/log"
 )
 
@@ -27,5 +26,5 @@ func TestMain(m *testing.M) {
 }
 
 func TestGitignore(t *testing.T) {
-	patterns := gitignore.ReadIgnoreFile(testDir)
+	// patterns := gitignore.ReadIgnoreFile(testDir)
 }

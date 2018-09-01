@@ -125,8 +125,11 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail(err.Error())
 	}
-	ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
-	m := gitignore.NewMatcher(ps)
+	var m gitignore.Matcher
+	if !ss.opts.Unrestricted {
+		ps, _ := gitignore.ReadIgnoreFile(filepath.Join(usr.HomeDir, ".gitignore_global"))
+		m = gitignore.NewMatcher(ps)
+	}
 	switch mode := fi.Mode(); {
 	case mode.IsDir():
 		ss.scanDir(ss.opts.Location, m)
@@ -144,9 +147,11 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		return
 	}
 
-	ps2, _ := gitignore.ReadIgnoreFile(filepath.Join(dir, ".gitignore"))
-	if len(ps2) > 0 {
-		m.AddPatterns(ps2)
+	if !ss.opts.Unrestricted {
+		ps2, _ := gitignore.ReadIgnoreFile(filepath.Join(dir, ".gitignore"))
+		if len(ps2) > 0 {
+			m.AddPatterns(ps2)
+		}
 	}
 
 	for _, fi := range dirInfo {
@@ -156,14 +161,16 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		}
 		path := filepath.Join(dir, fi.Name())
 		log.Debug("Testing %v against ignore rules", path)
-		if m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
+		if !ss.opts.Unrestricted && m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
 			continue
 		}
 		if fi.IsDir() {
 			ss.scanDir(path, m)
 		} else if fi.Mode().IsRegular() {
-			atomic.AddUint64(&ss.filesSearched, 1)
+			if ss.opts.Stats {
+				atomic.AddUint64(&ss.filesSearched, 1)
+			}
 			log.Debug("Queuing %v", path)
 			ss.searchQueue <- &path
 		}
@@ -175,7 +182,9 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
 func (ss *SuperSearch) newWorker() {
-	atomic.AddUint64(&ss.numWorkers, 1)
+	if ss.opts.Stats {
+		atomic.AddUint64(&ss.numWorkers, 1)
+	}
 	workerNum := ss.numWorkers
 	log.Debug("Started worker %v", ss.numWorkers)
 	ss.wg.Add(1)
@@ -230,11 +239,15 @@ func (ss *SuperSearch) searchFile(path *string) {
 			if ixs != nil {
 				if !matchFound {
 					matchFound = true
-					atomic.AddUint64(&ss.filesMatched, 1)
+					if ss.opts.Stats {
+						atomic.AddUint64(&ss.filesMatched, 1)
+					}
 					output.WriteString(highlightFile.Sprintf("%v\n", *path))
 				}
 
-				atomic.AddUint64(&ss.numMatches, 1)
+				if ss.opts.Stats {
+					atomic.AddUint64(&ss.numMatches, 1)
+				}
 
 				// Print line number, followed by each match
 				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))

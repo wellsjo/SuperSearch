@@ -17,13 +17,12 @@ var linesPerFile1 = 10
 var numFiles2 = 100
 var linesPerFile2 = 1000
 var testDir = setupSearchFolder(numFiles1, linesPerFile1)
-
-// var testDir2 = setupSearchFolder(numFiles2, linesPerFile2)
+var testDir2 = setupSearchFolder(numFiles2, linesPerFile2)
 
 func TestMain(m *testing.M) {
 	defer func() {
 		os.Remove(testDir)
-		// os.Remove(testDir2)
+		os.Remove(testDir2)
 	}()
 	os.Exit(m.Run())
 }
@@ -61,9 +60,11 @@ func createSearchFile(dir, file string, lines int) {
 
 func TestSearch(t *testing.T) {
 	s := New(&Options{
-		Pattern:  "fox",
-		Location: testDir,
-		Quiet:    true,
+		Pattern:      "fox",
+		Location:     testDir,
+		Quiet:        true,
+		Unrestricted: true,
+		Stats:        true,
 	})
 	s.Run()
 	assert.Equal(t, numFiles1*linesPerFile1, int(s.numMatches),
@@ -76,6 +77,29 @@ func BenchmarkSearchDynamicConcurrency(b *testing.B) {
 			Pattern:  "fox",
 			Location: testDir,
 			Quiet:    true,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchDynamicConcurrencyLarge(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:  "fox",
+			Location: testDir2,
+			Quiet:    true,
+		})
+		s.Run()
+	}
+}
+
+func BenchmarkSearchStatsOff(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		s := New(&Options{
+			Pattern:  "fox",
+			Location: testDir,
+			Quiet:    true,
+			Stats:    false,
 		})
 		s.Run()
 	}
