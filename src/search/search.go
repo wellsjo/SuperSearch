@@ -105,8 +105,11 @@ func (ss *SuperSearch) Run() {
 		start = time.Now()
 	}
 
+	// processFiles takes files from findFiles and delegates them to workers
+	// over the searchQueue channel. Workers then search the files and send
+	// results over to printLoop, which concatonates as many of the results
+	// as it can before printing.
 	go ss.processFiles()
-
 	go ss.printLoop()
 
 	// Synchronously finds files and send them into searchQueue,
@@ -138,15 +141,17 @@ func (ss *SuperSearch) Run() {
 func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
-		log.Debug("Waiting on search queue..")
 		p := <-ss.searchQueue
 		if p == nil {
 			break PROCESSLOOP
 		}
+
 		log.Debug("Processing %v", p.path)
+
 		select {
 		case ss.workerQueue <- p:
 			// no-op
+
 		default:
 			if int(ss.numWorkers) < maxConcurrency {
 				log.Debug("Workers busy; Creating new worker")
@@ -157,6 +162,9 @@ PROCESSLOOP:
 			ss.workerQueue <- p
 		}
 	}
+
+	// At this point, all jobs have been given to the workerQueue, and therefore
+	// accepted by workers. Closing this will free up the workers.
 	close(ss.workerQueue)
 }
 
@@ -291,12 +299,17 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 // These run in parallel, taking files off of the searchQueue channel until it
 // is finished
 func (ss *SuperSearch) newWorker() {
-	atomic.AddUint64(&ss.numWorkers, 1)
+
+	if ss.opts.Debug {
+		atomic.AddUint64(&ss.numWorkers, 1)
+	}
+
 	workerNum := ss.numWorkers
-	log.Debug("Started worker %v", ss.numWorkers)
+	log.Debug("Starting worker %v", ss.numWorkers)
+
 	go func() {
 		for {
-			log.Debug("Worker %v ready...", workerNum)
+			log.Debug("Worker %v waiting", workerNum)
 			sf := <-ss.workerQueue
 			if sf == nil {
 				break
