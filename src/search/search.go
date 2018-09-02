@@ -63,9 +63,11 @@ type SuperSearch struct {
 	workerQueue chan *searchFile
 	printQueue  chan *printFile
 
-	skipFiles map[uint64]struct{}
+	// Map of file indexes to empty structs, which the printLoop goroutine uses
+	// to determine what to print next
+	skipFiles *sync.Map
 
-	// Used for --stats; some of these aren't tracked by default
+	// These are used for --stats; some of these aren't tracked by default
 	numMatches    uint64
 	filesMatched  uint64
 	filesSearched uint64
@@ -90,7 +92,7 @@ func New(opts *Options) *SuperSearch {
 		workerQueue: make(chan *searchFile),
 		printQueue:  make(chan *printFile),
 
-		skipFiles: make(map[uint64]struct{}),
+		skipFiles: new(sync.Map),
 
 		wg: new(sync.WaitGroup),
 	}
@@ -104,6 +106,7 @@ func (ss *SuperSearch) Run() {
 	}
 
 	go ss.processFiles()
+
 	go ss.printLoop()
 
 	// Synchronously finds files and send them into searchQueue,
@@ -185,7 +188,7 @@ func (ss *SuperSearch) printLoop() {
 
 		// Skip past files without output
 		for {
-			if _, ok := ss.skipFiles[i]; ok {
+			if _, ok := ss.skipFiles.Load(i); ok {
 				i++
 			} else {
 				break
@@ -204,7 +207,7 @@ func (ss *SuperSearch) printLoop() {
 			}
 		}
 
-		if output.Len() > 0 {
+		if !ss.opts.Quiet && output.Len() > 0 {
 			fmt.Print(output.String())
 		}
 	}
@@ -222,7 +225,9 @@ func (ss *SuperSearch) findFiles() {
 	if err != nil {
 		log.Fail(err.Error())
 	}
+
 	switch mode := fi.Mode(); {
+
 	case mode.IsDir():
 		var m gitignore.Matcher
 		if !ss.opts.Unrestricted {
@@ -230,6 +235,7 @@ func (ss *SuperSearch) findFiles() {
 			m = gitignore.NewMatcher(ps)
 		}
 		ss.scanDir(ss.opts.Location, m)
+
 	case mode.IsRegular():
 		log.Debug("Queuing %v", ss.opts.Location)
 		ss.wg.Add(1)
@@ -379,7 +385,7 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 			index:  sf.index,
 		}
 	} else {
-		ss.skipFiles[sf.index] = struct{}{}
+		ss.skipFiles.Store(sf.index, struct{}{})
 	}
 }
 
