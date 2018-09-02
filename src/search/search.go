@@ -47,6 +47,7 @@ type Options struct {
 type searchFile struct {
 	path  string
 	index uint64
+	size  int64
 }
 
 type printFile struct {
@@ -250,6 +251,7 @@ func (ss *SuperSearch) findFiles() {
 		ss.searchQueue <- &searchFile{
 			path:  ss.opts.Location,
 			index: 1,
+			size:  fi.Size(),
 		}
 	}
 }
@@ -289,6 +291,7 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			ss.searchQueue <- &searchFile{
 				path:  path,
 				index: ss.filesSearched,
+				size:  fi.Size(),
 			}
 		}
 	}
@@ -324,28 +327,29 @@ func (ss *SuperSearch) newWorker() {
 func (ss *SuperSearch) searchFile(sf *searchFile) {
 	defer ss.wg.Done()
 
-	file, err := mmap.Open(sf.path)
+	file, err := os.Open(sf.path)
 	if err != nil {
 		log.Debug("Failed to open file %v", sf.path)
 		return
 	}
 	defer file.Close()
 
-	if isBin(file) {
-		log.Debug("Skipping binary file")
-		return
-	}
+	// if isBin(file) {
+	// 	log.Debug("Skipping binary file")
+	// 	return
+	// }
 
-	if file.Len() == 0 {
-		log.Debug("Skipping empty file")
-		return
-	}
+	// if file.Len() == 0 {
+	// 	log.Debug("Skipping empty file")
+	// 	return
+	// }
 
 	var output strings.Builder
 	matchFound := false
 	lastIndex := 0
 	lineNo := 1
-	buf := make([]byte, file.Len())
+
+	buf := make([]byte, sf.size)
 	_, err = file.ReadAt(buf, 0)
 	if err != nil {
 		return
