@@ -64,7 +64,7 @@ func TestSearch(t *testing.T) {
 		Location:     testDir,
 		Quiet:        true,
 		Unrestricted: true,
-		Stats:        true,
+		ShowStats:    true,
 	})
 	s.Run()
 	assert.Equal(t, numFiles1*linesPerFile1, int(s.numMatches),
@@ -96,10 +96,10 @@ func BenchmarkSearchDynamicConcurrencyLarge(b *testing.B) {
 func BenchmarkSearchStatsOff(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s := New(&Options{
-			Pattern:  "fox",
-			Location: testDir,
-			Quiet:    true,
-			Stats:    false,
+			Pattern:   "fox",
+			Location:  testDir,
+			Quiet:     true,
+			ShowStats: false,
 		})
 		s.Run()
 	}
