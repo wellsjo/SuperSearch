@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -339,16 +340,21 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 	}
 	defer file.Close()
 
-	var output strings.Builder
-	matchFound := false
-	lastIndex := 0
-	lineNo := 1
-
 	buf := make([]byte, sf.size)
 	_, err = file.ReadAt(buf, 0)
 	if err != nil {
 		return
 	}
+
+	if isBinary(buf) {
+		log.Debug("Skipping binary file")
+		return
+	}
+
+	var output strings.Builder
+	matchFound := false
+	lastIndex := 0
+	lineNo := 1
 
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
@@ -404,6 +410,22 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 	} else {
 		ss.skipFiles.Store(sf.index, struct{}{})
 	}
+}
+
+func isBinary(buf []byte) bool {
+	if len(buf) > 2 && bytes.Compare(buf[:3], utf8BOMMarker) == 0 {
+		log.Debug("UTF-8 BOM found")
+		return false
+	}
+	if len(buf) > 4 && bytes.Compare(buf[:5], pdfMarker) == 0 {
+		log.Debug("PDF found")
+		return true
+	}
+	maxCheck := 32
+	if len(buf) < 32 {
+		maxCheck = len(buf)
+	}
+	return !utf8.Valid(buf[:maxCheck])
 }
 
 func (ss *SuperSearch) printStats() {
