@@ -14,6 +14,8 @@ test:
 
 bench:
 	go test -bench=. src/search/* -benchmem -memprofile memprofile.out -cpuprofile cpuprofile.out
+bench-file:
+	go test -bench=. src/test/open_files_test.go
 
 profile:
 	pprof -top bin/ss profile.pb.gz
