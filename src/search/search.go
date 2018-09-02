@@ -41,7 +41,7 @@ type Options struct {
 	Hidden       bool `long:"hidden" description:"Search hidden files"`
 	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
 	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
-	Stats        bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
+	ShowStats    bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
 }
 
 type searchFile struct {
@@ -65,20 +65,23 @@ type SuperSearch struct {
 
 	skipFiles map[uint64]struct{}
 
+	// Used for --stats; some of these aren't tracked by default
 	numMatches    uint64
 	filesMatched  uint64
 	filesSearched uint64
+	numWorkers    uint64
+	duration      time.Duration
 
-	wg         *sync.WaitGroup
-	duration   time.Duration
-	numWorkers uint64
+	wg *sync.WaitGroup
 }
 
 func New(opts *Options) *SuperSearch {
+	log.Debug("Searching %q for %q", opts.Location, opts.Pattern)
+
 	if opts.Debug {
 		log.DebugMode = true
 	}
-	log.Debug("Searching %q for %q", opts.Location, opts.Pattern)
+
 	return &SuperSearch{
 		searchRegexp: regexp.MustCompile(opts.Pattern),
 		opts:         opts,
@@ -95,7 +98,11 @@ func New(opts *Options) *SuperSearch {
 
 // Main program logic
 func (ss *SuperSearch) Run() {
-	start := time.Now()
+	var start time.Time
+	if ss.opts.ShowStats {
+		start = time.Now()
+	}
+
 	go ss.processFiles()
 	go ss.printLoop()
 
@@ -115,15 +122,16 @@ func (ss *SuperSearch) Run() {
 	close(ss.printQueue)
 	ss.wg.Wait()
 
-	if ss.opts.Stats {
+	if ss.opts.ShowStats {
 		ss.duration = time.Since(start)
 		ss.printStats()
 	}
 }
 
-// This runs in its own goroutine, and recieves files from ss.findFiles() through searchQueue.
-// When a file is recieved, it either gives it to a ready worker, or creates a new worker.
-// This will block if all workers are busy and numWorkers == maxWorkers.
+// This runs in its own goroutine, and recieves files from ss.findFiles()
+// through searchQueue. When a file is recieved, it either gives it to a ready
+// worker, or creates a new worker. This will block if all workers are busy
+// and numWorkers == maxWorkers.
 func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
@@ -165,13 +173,17 @@ func (ss *SuperSearch) printLoop() {
 
 		output strings.Builder
 	)
+
 	for {
 		p := <-ss.printQueue
 		if p == nil {
 			break
 		}
+
 		output.Reset()
 		print[p.index] = p.output
+
+		// Skip past files without output
 		for {
 			if _, ok := ss.skipFiles[i]; ok {
 				i++
@@ -179,6 +191,8 @@ func (ss *SuperSearch) printLoop() {
 				break
 			}
 		}
+
+		// Add as many outputs together as we can before printing
 		for {
 			out, ok := print[i]
 			if ok {
@@ -189,10 +203,12 @@ func (ss *SuperSearch) printLoop() {
 				break
 			}
 		}
+
 		if output.Len() > 0 {
 			fmt.Print(output.String())
 		}
 	}
+
 	log.Debug("Print loop done")
 	ss.wg.Done()
 }
@@ -321,22 +337,25 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 			var line = buf[lastIndex:i]
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
 
+			// We found matches
 			if ixs != nil {
-				if !matchFound {
-					matchFound = true
-					if ss.opts.Stats {
-						atomic.AddUint64(&ss.filesMatched, 1)
-					}
-					output.WriteString(highlightFile.Sprintf("%v\n", sf.path))
+
+				if ss.opts.ShowStats {
+					atomic.AddUint64(&ss.numMatches, 1)
 				}
 
-				if ss.opts.Stats {
-					atomic.AddUint64(&ss.numMatches, 1)
+				if !matchFound {
+					matchFound = true
+					if ss.opts.ShowStats {
+						atomic.AddUint64(&ss.filesMatched, 1)
+					}
+					// Print the file name if we find a match
+					output.WriteString(highlightFile.Sprintf("%v\n", sf.path))
 				}
 
 				// Print line number, followed by each match
 				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
-				lastIndex := 0
+				lastIndex = 0
 
 				// Loop through match indexes, output highlighted match
 				for _, i := range ixs {
