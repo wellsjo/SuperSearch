@@ -17,7 +17,6 @@ import (
 	"github.com/fatih/color"
 	"github.com/wellsjo/SuperSearch/src/gitignore"
 	"github.com/wellsjo/SuperSearch/src/log"
-	"golang.org/x/exp/mmap"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -143,8 +142,14 @@ func (ss *SuperSearch) processFiles() {
 PROCESSLOOP:
 	for {
 		p := <-ss.searchQueue
+
 		if p == nil {
 			break PROCESSLOOP
+		}
+
+		if p.size == 0 {
+			log.Debug("Skipping empty file %v", p.path)
+			continue
 		}
 
 		log.Debug("Processing %v", p.path)
@@ -334,16 +339,6 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 	}
 	defer file.Close()
 
-	// if isBin(file) {
-	// 	log.Debug("Skipping binary file")
-	// 	return
-	// }
-
-	// if file.Len() == 0 {
-	// 	log.Debug("Skipping empty file")
-	// 	return
-	// }
-
 	var output strings.Builder
 	matchFound := false
 	lastIndex := 0
@@ -359,6 +354,11 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 		if buf[i] == '\n' {
 			var line = buf[lastIndex:i]
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
+
+			// Skip binary files
+			if !matchFound && !utf8.Valid(line) {
+				return
+			}
 
 			// We found matches
 			if ixs != nil {
@@ -404,17 +404,6 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 	} else {
 		ss.skipFiles.Store(sf.index, struct{}{})
 	}
-}
-
-// Determine if file is binary by checking if it is valid utf8
-func isBin(file *mmap.ReaderAt) bool {
-	var (
-		offsetStart = file.Len() / 3
-		offsetEnd   = file.Len() / 2
-	)
-	var buf = make([]byte, offsetEnd-offsetStart)
-	file.ReadAt(buf, int64(offsetStart))
-	return !utf8.Valid(buf)
 }
 
 func (ss *SuperSearch) printStats() {
