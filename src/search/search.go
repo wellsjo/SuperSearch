@@ -30,6 +30,10 @@ var (
 	highlightMatch  = color.New(color.BgYellow).Add(color.FgBlack).Add(color.Bold)
 	highlightFile   = color.New(color.FgCyan).Add(color.Bold)
 	highlightNumber = color.New(color.FgGreen).Add(color.Bold)
+
+	utf8BOMMarker = []byte{0xEF, 0xBB, 0xBF}
+	pdfMarker     = []byte{'%', 'P', 'D', 'F', '-'}
+	regexChars    = "[{(*+.?^|\\"
 )
 
 type Options struct {
@@ -37,11 +41,13 @@ type Options struct {
 	Pattern  string
 	Location string
 
-	Quiet        bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	IgnoreCase   bool `short:"i" long:"ignore-case" description:"Ignore case sensitivity when matching"`
 	Hidden       bool `long:"hidden" description:"Search hidden files"`
 	Unrestricted bool `short:"U" long:"unrestricted" description:"Search all files (ignore .gitignore)"`
-	Debug        bool `short:"D" long:"debug" description:"Show verbose debug information"`
-	ShowStats    bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
+
+	Quiet     bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
+	Debug     bool `short:"D" long:"debug" description:"Show verbose debug information"`
+	ShowStats bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
 }
 
 type searchFile struct {
@@ -58,6 +64,7 @@ type printFile struct {
 type SuperSearch struct {
 	opts *Options
 
+	isRegex      bool
 	searchRegexp *regexp.Regexp
 
 	searchQueue chan *searchFile
@@ -75,7 +82,8 @@ type SuperSearch struct {
 	numWorkers    uint64
 	duration      time.Duration
 
-	wg *sync.WaitGroup
+	workDir string
+	wg      *sync.WaitGroup
 }
 
 func New(opts *Options) *SuperSearch {
@@ -85,9 +93,30 @@ func New(opts *Options) *SuperSearch {
 		log.DebugMode = true
 	}
 
+	if opts.IgnoreCase {
+		log.Debug("Using case insensitive search %v", opts.Pattern)
+	}
+
+	var rgx *regexp.Regexp
+	isRgx := false
+	if isRegex(opts.Pattern) {
+		log.Debug("Using regex search")
+		rgx = regexp.MustCompile(opts.Pattern)
+		isRgx = true
+	} else {
+		log.Debug("Using Boyer-Moore string search")
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fail(err.Error())
+	}
+
 	return &SuperSearch{
-		searchRegexp: regexp.MustCompile(opts.Pattern),
+		searchRegexp: rgx,
+		isRegex:      isRgx,
 		opts:         opts,
+		workDir:      wd,
 
 		searchQueue: make(chan *searchFile),
 		workerQueue: make(chan *searchFile),
@@ -319,13 +348,16 @@ func (ss *SuperSearch) newWorker() {
 	go func() {
 		for {
 			log.Debug("Worker %v waiting", workerNum)
+
 			sf := <-ss.workerQueue
 			if sf == nil {
 				break
 			}
+
 			log.Debug("Worker %v searching %v", workerNum, sf.path)
 			ss.searchFile(sf)
 		}
+
 		log.Debug("Worker %v finished", workerNum)
 	}()
 }
@@ -351,11 +383,21 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 		return
 	}
 
+	if ss.isRegex {
+		ss.searchFileRegex(sf, buf)
+	} else {
+		ss.searchFileBoyerMoore(sf, buf)
+	}
+}
+
+func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) {
+
 	var output strings.Builder
 	matchFound := false
 	lastIndex := 0
 	lineNo := 1
 
+	// TODO regex whole file instead of by line?
 	for i := 0; i < len(buf); i++ {
 		if buf[i] == '\n' {
 			var line = buf[lastIndex:i]
@@ -370,7 +412,7 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 			if ixs != nil {
 
 				if ss.opts.ShowStats {
-					atomic.AddUint64(&ss.numMatches, 1)
+					atomic.AddUint64(&ss.numMatches, uint64(len(ixs)))
 				}
 
 				if !matchFound {
@@ -412,6 +454,70 @@ func (ss *SuperSearch) searchFile(sf *searchFile) {
 	}
 }
 
+func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) {
+	matches := BoyerMooreSearch(string(buf), ss.opts.Pattern)
+
+	if len(matches) == 0 {
+		ss.skipFiles.Store(sf.index, struct{}{})
+		return
+	}
+
+	atomic.AddUint64(&ss.numMatches, uint64(len(matches)))
+	log.Debug("Found matches at %v", matches)
+
+	var output strings.Builder
+	lastNewline := 0
+	lineNo := 1
+	matchIndex := 0
+	matchFound := false
+	lastIndex := -1
+
+	output.WriteString(highlightFile.Sprintf("%v\n", strings.Replace(sf.path, ss.workDir, "", -1)[1:]))
+
+	for i := 0; i < len(buf); i++ {
+		if buf[i] == '\n' {
+			lineNo++
+			lastNewline = i
+
+			if matchFound {
+				output.Write(buf[lastIndex:i])
+				output.WriteRune('\n')
+				matchFound = false
+			}
+		}
+
+		if i == matches[matchIndex] {
+
+			log.Debug("Found match at %v %v", i, i-len(ss.opts.Pattern)-1)
+
+			// Print line number, followed by each match
+			output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
+
+			log.Debug("%v %v %v", lastNewline+1, i-len(ss.opts.Pattern), len(buf))
+
+			// fmt.Println(string(buf[lastNewline+1 : i-len(ss.opts.Pattern)]))
+			output.Write(buf[lastNewline+1 : i-len(ss.opts.Pattern)])
+
+			output.WriteString(highlightMatch.Sprint(string(buf[i-len(ss.opts.Pattern) : i])))
+
+			matchIndex++
+			if matchIndex == len(matches) {
+				break
+			}
+
+			lastIndex = i
+			matchFound = true
+		}
+	}
+
+	output.WriteRune('\n')
+
+	ss.printQueue <- &printFile{
+		output: output.String(),
+		index:  sf.index,
+	}
+}
+
 func isBinary(buf []byte) bool {
 	if len(buf) > 2 && bytes.Compare(buf[:3], utf8BOMMarker) == 0 {
 		log.Debug("UTF-8 BOM found")
@@ -426,6 +532,10 @@ func isBinary(buf []byte) bool {
 		maxCheck = len(buf)
 	}
 	return !utf8.Valid(buf[:maxCheck])
+}
+
+func isRegex(pattern string) bool {
+	return strings.ContainsAny(pattern, regexChars)
 }
 
 func (ss *SuperSearch) printStats() {

@@ -48,8 +48,10 @@ func main() {
 	}
 
 	search.New(&search.Options{
-		Pattern:      pattern,
-		Location:     location,
+		Pattern:  pattern,
+		Location: location,
+
+		IgnoreCase:   opts.IgnoreCase,
 		Quiet:        opts.Quiet,
 		Hidden:       opts.Hidden,
 		Unrestricted: opts.Unrestricted,
