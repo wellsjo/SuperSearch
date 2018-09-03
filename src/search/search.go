@@ -303,6 +303,10 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 			log.Debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
+		if !ss.opts.Unrestricted && strings.Contains(fi.Name(), ".min") {
+			log.Debug("Skipping minified file")
+			continue
+		}
 		path := filepath.Join(dir, fi.Name())
 		if !ss.opts.Unrestricted && m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
 			log.Debug("Skipping gitignore match: %v", path)
@@ -382,7 +386,7 @@ func (ss *SuperSearch) searchFile(sf *searchFile) bool {
 	if ss.isRegex {
 		return ss.searchFileRegex(sf, buf)
 	} else {
-		return ss.searchFileBoyerMoore(sf, buf)
+		return ss.searchFileBoyerMoore(sf, string(buf))
 	}
 }
 
@@ -452,8 +456,10 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
 	return false
 }
 
-func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) bool {
-	matches := BoyerMooreSearch(string(buf), ss.opts.Pattern)
+func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf string) bool {
+	f := makeStringFinder(ss.opts.Pattern)
+
+	matches := f.findAll(buf)
 
 	if len(matches) == 0 {
 		return false
@@ -477,9 +483,13 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) bool {
 	output.WriteString(highlightFile.Sprintf("%v\n", fName))
 
 	for i := 0; i < len(buf); i++ {
-		if buf[i] == '\n' || i == len(buf)-1 {
+		if buf[i] == '\n' {
+
 			if printingLine {
-				output.Write(buf[lastIndex:i])
+				log.DebugGreen("printing last match->newline %v %v %v %v", lastIndex, i, lineNo, sf.path)
+				// if i > lastIndex {
+				output.WriteString(buf[lastIndex:i])
+				// }
 				if done {
 					break
 				}
@@ -492,22 +502,22 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) bool {
 		}
 
 		if done {
-			continue
+			break
 		}
 
 		if i == matches[matchIndex] {
+			matchIndex++
 
 			// Print line number, followed by each match
 			if !printingLine {
 				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
 			}
 
-			log.DebugGreen("%v %v", lastIndex, i)
-			output.Write(buf[lastIndex:i])
+			log.DebugGreen("printing last newline->match %v %v %v %v", lastIndex, i, lineNo, sf.path)
+			output.WriteString(buf[lastIndex:i])
 
 			output.WriteString(highlightMatch.Sprint(string(buf[i : i+len(ss.opts.Pattern)])))
 
-			matchIndex++
 			if matchIndex == len(matches) {
 				done = true
 			}
@@ -517,7 +527,7 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) bool {
 		}
 	}
 
-	output.WriteString("\n")
+	output.WriteString("\n\n")
 	fmt.Print(output.String())
 
 	return true
