@@ -17,7 +17,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/wellsjo/SuperSearch/src/gitignore"
-	"github.com/wellsjo/SuperSearch/src/log"
+	"github.com/wellsjo/SuperSearch/src/logger"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -51,9 +51,11 @@ type Options struct {
 }
 
 type searchFile struct {
-	path  string
-	index uint64
-	size  int64
+	index   uint64
+	path    string
+	buf     []byte
+	size    int64
+	matches []int
 }
 
 type printFile struct {
@@ -87,29 +89,29 @@ type SuperSearch struct {
 }
 
 func New(opts *Options) *SuperSearch {
-	log.Debug("Searching %q for %q", opts.Location, opts.Pattern)
+	logger.Debug("Searching %q for %q", opts.Location, opts.Pattern)
 
 	if opts.Debug {
-		log.DebugMode = true
+		logger.DebugMode = true
 	}
 
 	if opts.IgnoreCase {
-		log.Debug("Using case insensitive search %v", opts.Pattern)
+		logger.Debug("Using case insensitive search %v", opts.Pattern)
 	}
 
 	var rgx *regexp.Regexp
 	isRgx := false
 	if isRegex(opts.Pattern) {
-		log.Debug("Using regex search")
+		logger.Debug("Using regex search")
 		rgx = regexp.MustCompile(opts.Pattern)
 		isRgx = true
 	} else {
-		log.Debug("Using Boyer-Moore string search")
+		logger.Debug("Using Boyer-Moore string search")
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		log.Fail(err.Error())
+		logger.Fail(err.Error())
 	}
 
 	return &SuperSearch{
@@ -140,7 +142,6 @@ func (ss *SuperSearch) Run() {
 	// results over to printLoop, which concatonates as many of the results
 	// as it can before printing.
 	go ss.processFiles()
-	go ss.printLoop()
 
 	// Synchronously finds files and send them into searchQueue,
 	// which are then processed by the processFiles goroutine
@@ -148,17 +149,12 @@ func (ss *SuperSearch) Run() {
 
 	// 1 is added to the WaitGroup for every file processed, then
 	// Done() is called after each file is searched.
-	log.Debug("Waiting for jobs to finish")
+	logger.Debug("Waiting for jobs to finish")
 	ss.wg.Wait()
 
 	// All files have been processed, so we can close these
-	log.Debug("Closing search queue")
+	logger.Debug("Closing search queue")
 	close(ss.searchQueue)
-
-	// Wait for printing to finish before exiting
-	// ss.wg.Add(1)
-	// close(ss.printQueue)
-	// ss.wg.Wait()
 
 	if ss.opts.ShowStats {
 		ss.duration = time.Since(start)
@@ -179,12 +175,7 @@ PROCESSLOOP:
 			break PROCESSLOOP
 		}
 
-		if p.size == 0 {
-			log.Debug("Skipping empty file %v", p.path)
-			continue
-		}
-
-		log.Debug("Processing %v", p.path)
+		logger.Debug("Processing %v", p.path)
 
 		select {
 		case ss.workerQueue <- p:
@@ -192,10 +183,10 @@ PROCESSLOOP:
 
 		default:
 			if int(ss.numWorkers) < maxConcurrency {
-				log.Debug("Workers busy; Creating new worker")
+				logger.Debug("Workers busy; Creating new worker")
 				ss.newWorker()
 			} else {
-				log.Debug("Workers busy and can't create more; Waiting...")
+				logger.Debug("Workers busy and can't create more; Waiting...")
 			}
 			ss.workerQueue <- p
 		}
@@ -203,6 +194,7 @@ PROCESSLOOP:
 
 	// At this point, all jobs have been given to the workerQueue, and therefore
 	// accepted by workers. Closing this will free up the workers.
+	logger.Debug("Closing worker queue")
 	close(ss.workerQueue)
 }
 
@@ -231,12 +223,12 @@ func (ss *SuperSearch) printLoop() {
 		for {
 			out, ok := print[i]
 			if ok {
-				log.DebugGreen("Adding %v to string builder", i)
+				logger.DebugGreen("Adding %v to string builder", i)
 				output.WriteString(out)
 				i++
 			}
 			if _, ok := ss.skipFiles.Load(i); ok {
-				log.DebugGreen("Printer skipping %v", i)
+				logger.DebugGreen("Printer skipping %v", i)
 				i++
 			} else {
 				break
@@ -248,7 +240,7 @@ func (ss *SuperSearch) printLoop() {
 		}
 	}
 
-	log.Debug("Print loop done\n%v", print)
+	logger.Debug("Print loop done\n%v", print)
 	fmt.Println(*ss.skipFiles)
 	ss.wg.Done()
 }
@@ -256,11 +248,12 @@ func (ss *SuperSearch) printLoop() {
 func (ss *SuperSearch) findFiles() {
 	fi, err := os.Stat(ss.opts.Location)
 	if err != nil {
-		log.Fail("invalid location input %v", ss.opts.Location)
+		logger.Fail("invalid location input %v", ss.opts.Location)
 	}
+
 	usr, err := user.Current()
 	if err != nil {
-		log.Fail(err.Error())
+		logger.Fail(err.Error())
 	}
 
 	switch mode := fi.Mode(); {
@@ -280,7 +273,7 @@ func (ss *SuperSearch) findFiles() {
 
 // Recursively go through directory, sending all files into searchQueue
 func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
-	log.Debug("Scanning directory %v", dir)
+	logger.Debug("Scanning directory %v", dir)
 
 	dirInfo, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -296,16 +289,16 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 
 	for _, fi := range dirInfo {
 		if !ss.opts.Hidden && fi.Name()[0] == '.' {
-			log.Debug("Skipping hidden file %v", fi.Name())
+			logger.Debug("Skipping hidden file %v", fi.Name())
 			continue
 		}
 		if !ss.opts.Unrestricted && strings.Contains(fi.Name(), ".min") {
-			log.Debug("Skipping minified file")
+			logger.Debug("Skipping minified file")
 			continue
 		}
 		path := filepath.Join(dir, fi.Name())
 		if !ss.opts.Unrestricted && m.Match(strings.Split(path, separator)[1:], fi.IsDir()) {
-			log.Debug("Skipping gitignore match: %v", path)
+			logger.Debug("Skipping gitignore match: %v", path)
 			continue
 		}
 		if fi.IsDir() {
@@ -315,12 +308,16 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		}
 	}
 
-	log.Debug("Finished scanning directory %v", dir)
+	logger.Debug("Finished scanning directory %v", dir)
 }
 
 func (ss *SuperSearch) queue(path string, size int64) {
 	atomic.AddUint64(&ss.filesSearched, 1)
-	log.Debug("Queuing %v", path)
+	if size == 0 {
+		logger.Debug("Skipping empty file %v", path)
+		return
+	}
+	logger.Debug("Queuing %v", path)
 	ss.wg.Add(1)
 	ss.searchQueue <- &searchFile{
 		path:  path,
@@ -338,27 +335,26 @@ func (ss *SuperSearch) newWorker() {
 	}
 
 	workerNum := ss.numWorkers
-	log.Debug("Starting worker %v", ss.numWorkers)
+	logger.Debug("Starting worker %v", ss.numWorkers)
 
 	go func() {
 		for {
-			log.Debug("Worker %v waiting", workerNum)
+			logger.Debug("Worker %v waiting", workerNum)
 
 			sf := <-ss.workerQueue
 			if sf == nil {
 				break
 			}
 
-			log.Debug("Worker %v searching %v", workerNum, sf.path)
+			logger.Debug("Worker %v searching %v", workerNum, sf.path)
+			ss.searchFile(sf)
 
-			matchFound := ss.searchFile(sf)
-
-			if !matchFound {
-				ss.skipFiles.Store(sf.index, struct{}{})
-			}
+			// if !matchFound {
+			// 	ss.skipFiles.Store(sf.index, struct{}{})
+			// }
 		}
 
-		log.Debug("Worker %v finished", workerNum)
+		logger.Debug("Worker %v finished", workerNum)
 	}()
 }
 
@@ -367,30 +363,30 @@ func (ss *SuperSearch) searchFile(sf *searchFile) bool {
 
 	file, err := os.Open(sf.path)
 	if err != nil {
-		log.Debug("Failed to open file %v", sf.path)
+		logger.Debug("Failed to open file %v", sf.path)
 		return false
 	}
 	defer file.Close()
 
-	buf := make([]byte, sf.size)
-	_, err = file.ReadAt(buf, 0)
+	sf.buf = make([]byte, sf.size)
+	_, err = file.ReadAt(sf.buf, 0)
 	if err != nil {
 		return false
 	}
 
-	if isBinary(buf) {
-		log.Debug("Skipping binary file")
+	if isBinary(sf.buf) {
+		logger.Debug("Skipping binary file")
 		return false
 	}
 
 	if ss.isRegex {
-		return ss.searchFileRegex(sf, buf)
+		return ss.searchFileRegex(sf)
 	} else {
-		return ss.searchFileBoyerMoore(sf, string(buf))
+		return ss.searchFileBoyerMoore(sf)
 	}
 }
 
-func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
+func (ss *SuperSearch) searchFileRegex(sf *searchFile) bool {
 
 	var output strings.Builder
 	matchFound := false
@@ -398,9 +394,9 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
 	lineNo := 1
 
 	// TODO regex whole file instead of by line?
-	for i := 0; i < len(buf); i++ {
-		if buf[i] == '\n' {
-			var line = buf[lastIndex:i]
+	for i := 0; i < len(sf.buf); i++ {
+		if sf.buf[i] == '\n' {
+			var line = sf.buf[lastIndex:i]
 			ixs := ss.searchRegexp.FindAllIndex(line, -1)
 
 			// Skip binary files
@@ -452,96 +448,33 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
 	return false
 }
 
-func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf string) bool {
-	f := makeStringFinder(ss.opts.Pattern)
+func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile) bool {
+	sf.matches = makeStringFinder(ss.opts.Pattern).findAll(string(sf.buf))
 
-	matches := f.findAll(buf)
-
-	if len(matches) == 0 {
+	if len(sf.matches) == 0 {
 		return false
 	}
 
-	fName := strings.Replace(sf.path, ss.workDir, "", -1)
-	if fName[0] == '/' {
-		fName = fName[1:]
-	}
-
-	atomic.AddUint64(&ss.numMatches, uint64(len(matches)))
-	log.Debug("Found matches at %v in %v", matches, fName)
-
-	var output strings.Builder
-	lineNo := 1
-	matchIndex := 0
-	printingLine := false
-	lastIndex := 0
-	done := false
-
-	output.WriteString(highlightFile.Sprintf("%v\n", fName))
-
-	for i := 0; i < len(buf); i++ {
-		if buf[i] == '\n' {
-
-			if printingLine {
-				output.WriteString(buf[lastIndex:i])
-				if done {
-					break
-				}
-				output.WriteRune('\n')
-				printingLine = false
-			}
-
-			lineNo++
-			lastIndex = i + 1
-		}
-
-		if done {
-			if printingLine {
-				continue
-			}
-			break
-		}
-
-		if i == matches[matchIndex] {
-			matchIndex++
-
-			// Print line number, followed by each match
-			if !printingLine {
-				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
-			}
-
-			log.DebugGreen("printing last newline->match %v %v %v %v", lastIndex, i, lineNo, sf.path)
-			output.WriteString(buf[lastIndex:i])
-
-			output.WriteString(highlightMatch.Sprint(string(buf[i : i+len(ss.opts.Pattern)])))
-
-			if matchIndex == len(matches) {
-				done = true
-			}
-
-			lastIndex = i + len(ss.opts.Pattern)
-			printingLine = true
-		}
-	}
-
-	output.WriteString("\n\n")
-	fmt.Print(output.String())
-
+	ss.handleMatches(sf)
 	return true
 }
 
 func isBinary(buf []byte) bool {
 	if len(buf) > 2 && bytes.Compare(buf[:3], utf8BOMMarker) == 0 {
-		log.Debug("UTF-8 BOM found")
+		logger.Debug("UTF-8 BOM found")
 		return false
 	}
+
 	if len(buf) > 4 && bytes.Compare(buf[:5], pdfMarker) == 0 {
-		log.Debug("PDF found")
+		logger.Debug("PDF found")
 		return true
 	}
+
 	maxCheck := 32
 	if len(buf) < 32 {
 		maxCheck = len(buf)
 	}
+
 	return !utf8.Valid(buf[:maxCheck])
 }
 

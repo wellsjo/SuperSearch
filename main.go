@@ -5,7 +5,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 
-	"github.com/wellsjo/SuperSearch/src/log"
+	"github.com/wellsjo/SuperSearch/src/logger"
 	"github.com/wellsjo/SuperSearch/src/search"
 )
 
@@ -21,7 +21,7 @@ func main() {
 	args, err := parser.Parse()
 
 	if err != nil {
-		log.Fail(err.Error())
+		logger.Fail(err.Error())
 	}
 
 	if len(args) == 0 {
@@ -43,7 +43,7 @@ func main() {
 	if location == "" {
 		location, err = os.Getwd()
 		if err != nil {
-			log.Fail(err.Error())
+			logger.Fail(err.Error())
 		}
 	}
 
