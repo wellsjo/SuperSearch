@@ -1,78 +1,155 @@
 package search
 
 import (
-	"unicode/utf8"
+	"strings"
+
+	"github.com/wellsjo/SuperSearch/src/log"
 )
 
-// build skip table of needle for Boyer-Moore search.
-func BuildSkipTable(needle string) map[rune]int {
-	l := utf8.RuneCountInString(needle)
-	runes := []rune(needle)
+// stringFinder efficiently finds strings in a source text. It's implemented
+// using the Boyer-Moore string search algorithm:
+// https://en.wikipedia.org/wiki/Boyer-Moore_string_search_algorithm
+// https://www.cs.utexas.edu/~moore/publications/fstrpos.pdf (note: this aged
+// document uses 1-based indexing)
+type stringFinder struct {
+	// pattern is the string that we are searching for in the text.
+	pattern string
 
-	table := make(map[rune]int)
+	// badCharSkip[b] contains the distance between the last byte of pattern
+	// and the rightmost occurrence of b in pattern. If b is not in pattern,
+	// badCharSkip[b] is len(pattern).
+	//
+	// Whenever a mismatch is found with byte b in the text, we can safely
+	// shift the matching frame at least badCharSkip[b] until the next time
+	// the matching char could be in alignment.
+	badCharSkip [256]int
 
-	for i := 0; i < l-1; i++ {
-		j := runes[i]
-		table[j] = l - i - 1
-	}
-
-	return table
+	// goodSuffixSkip[i] defines how far we can shift the matching frame given
+	// that the suffix pattern[i+1:] matches, but the byte pattern[i] does
+	// not. There are two cases to consider:
+	//
+	// 1. The matched suffix occurs elsewhere in pattern (with a different
+	// byte preceding it that we might possibly match). In this case, we can
+	// shift the matching frame to align with the next suffix chunk. For
+	// example, the pattern "mississi" has the suffix "issi" next occurring
+	// (in right-to-left order) at index 1, so goodSuffixSkip[3] ==
+	// shift+len(suffix) == 3+4 == 7.
+	//
+	// 2. If the matched suffix does not occur elsewhere in pattern, then the
+	// matching frame may share part of its prefix with the end of the
+	// matching suffix. In this case, goodSuffixSkip[i] will contain how far
+	// to shift the frame to align this portion of the prefix to the
+	// suffix. For example, in the pattern "abcxxxabc", when the first
+	// mismatch from the back is found to be in position 3, the matching
+	// suffix "xxabc" is not found elsewhere in the pattern. However, its
+	// rightmost "abc" (at position 6) is a prefix of the whole pattern, so
+	// goodSuffixSkip[3] == shift+len(suffix) == 6+5 == 11.
+	goodSuffixSkip []int
 }
 
-func SearchBySkipTable(haystack, needle string, table map[rune]int) []int {
+func makeStringFinder(pattern string) *stringFinder {
+	f := &stringFinder{
+		pattern:        pattern,
+		goodSuffixSkip: make([]int, len(pattern)),
+	}
+	// last is the index of the last character in the pattern.
+	last := len(pattern) - 1
 
-	i := 0
-	hrunes := []rune(haystack)
-	nrunes := []rune(needle)
-	hl := utf8.RuneCountInString(haystack)
-	nl := utf8.RuneCountInString(needle)
-
-	if hl == 0 || nl == 0 || hl < nl {
-		return nil
+	// Build bad character table.
+	// Bytes not in the pattern can skip one pattern's length.
+	for i := range f.badCharSkip {
+		f.badCharSkip[i] = len(pattern)
+	}
+	// The loop condition is < instead of <= so that the last byte does not
+	// have a zero distance to itself. Finding this byte out of place implies
+	// that it is not in the last position.
+	for i := 0; i < last; i++ {
+		f.badCharSkip[pattern[i]] = last - i
 	}
 
-	if hl == nl && haystack == needle {
-		return nil
-	}
-
-	matches := make([]int, 0)
-
-loop:
-	for i+nl <= hl {
-		for j := nl - 1; j >= 0; j-- {
-			if hrunes[i+j] != nrunes[j] {
-				if _, ok := table[hrunes[i+j]]; !ok {
-					if j == nl-1 {
-						i += nl
-					} else {
-						i += nl - j - 1
-					}
-				} else {
-					n := table[hrunes[i+j]] - (nl - j - 1)
-					if n <= 0 {
-						i++
-					} else {
-						i += n
-					}
-				}
-				goto loop
-			}
+	// Build good suffix table.
+	// First pass: set each value to the next index which starts a prefix of
+	// pattern.
+	lastPrefix := last
+	for i := last; i >= 0; i-- {
+		if strings.HasPrefix(pattern, pattern[i+1:]) {
+			lastPrefix = i + 1
 		}
-
-		matches = append(matches, i)
-
-		if _, ok := table[hrunes[i+nl-1]]; ok {
-			i += table[hrunes[i+nl-1]]
-		} else {
-			i += nl
+		// lastPrefix is the shift, and (last-i) is len(suffix).
+		f.goodSuffixSkip[i] = lastPrefix + last - i
+	}
+	// Second pass: find repeats of pattern's suffix starting from the front.
+	for i := 0; i < last; i++ {
+		lenSuffix := longestCommonSuffix(pattern, pattern[1:i+1])
+		if pattern[i-lenSuffix] != pattern[last-lenSuffix] {
+			// (last-i) is the shift, and lenSuffix is len(suffix).
+			f.goodSuffixSkip[last-lenSuffix] = lenSuffix + last - i
 		}
 	}
 
+	return f
+}
+
+func longestCommonSuffix(a, b string) (i int) {
+	for ; i < len(a) && i < len(b); i++ {
+		if a[len(a)-1-i] != b[len(b)-1-i] {
+			break
+		}
+	}
+	return
+}
+
+func (f *stringFinder) findAll(buf string) []int {
+	matched := false
+	var lastMatch int
+	var bufCount int
+	var matches []int
+	for {
+		var match int
+
+		if matched {
+			bufCount += lastMatch
+			buf = buf[lastMatch:]
+		}
+
+		match = f.next(string(buf))
+
+		if match > -1 {
+			matched = true
+			matches = append(matches, bufCount+match)
+			lastMatch = match + len(f.pattern)
+		}
+
+		if match == -1 {
+			log.Debug("no more matches")
+			break
+		}
+	}
 	return matches
 }
 
-// search a needle in haystack and return count of needle.
-func BoyerMooreSearch(haystack, needle string) []int {
-	table := BuildSkipTable(needle)
-	return SearchBySkipTable(haystack, needle, table)
+// next returns the index in text of the first occurrence of the pattern. If
+// the pattern is not found, it returns -1.
+func (f *stringFinder) next(text string) int {
+	i := len(f.pattern) - 1
+	for i < len(text) {
+		// Compare backwards from the end until the first unmatching character.
+		j := len(f.pattern) - 1
+		for j >= 0 && text[i] == f.pattern[j] {
+			i--
+			j--
+		}
+		if j < 0 {
+			return i + 1 // match
+		}
+		i += max(f.badCharSkip[text[i]], f.goodSuffixSkip[j])
+	}
+	return -1
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
