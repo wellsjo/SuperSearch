@@ -446,10 +446,6 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
 	if matchFound {
 		output.WriteRune('\n')
 		fmt.Print(output.String())
-		// ss.printQueue <- &printFile{
-		// 	output: output.String(),
-		// 	index:  sf.index,
-		// }
 		return true
 	}
 
@@ -486,10 +482,7 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf string) bool {
 		if buf[i] == '\n' {
 
 			if printingLine {
-				log.DebugGreen("printing last match->newline %v %v %v %v", lastIndex, i, lineNo, sf.path)
-				// if i > lastIndex {
 				output.WriteString(buf[lastIndex:i])
-				// }
 				if done {
 					break
 				}
@@ -502,6 +495,9 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf string) bool {
 		}
 
 		if done {
+			if printingLine {
+				continue
+			}
 			break
 		}
 
