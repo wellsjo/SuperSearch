@@ -2,8 +2,6 @@ package search
 
 import (
 	"strings"
-
-	"github.com/wellsjo/SuperSearch/src/log"
 )
 
 // stringFinder efficiently finds strings in a source text. It's implemented
@@ -121,7 +119,6 @@ func (f *stringFinder) findAll(buf string) []int {
 		}
 
 		if match == -1 {
-			log.Debug("no more matches")
 			break
 		}
 	}

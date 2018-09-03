@@ -148,9 +148,11 @@ func (ss *SuperSearch) Run() {
 
 	// 1 is added to the WaitGroup for every file processed, then
 	// Done() is called after each file is searched.
+	log.Debug("Waiting for jobs to finish")
 	ss.wg.Wait()
 
 	// All files have been processed, so we can close these
+	log.Debug("Closing search queue")
 	close(ss.searchQueue)
 
 	// Wait for printing to finish before exiting
@@ -272,13 +274,7 @@ func (ss *SuperSearch) findFiles() {
 		ss.scanDir(ss.opts.Location, m)
 
 	case mode.IsRegular():
-		log.Debug("Queuing %v", ss.opts.Location)
-		ss.wg.Add(1)
-		ss.searchQueue <- &searchFile{
-			path:  ss.opts.Location,
-			index: 1,
-			size:  fi.Size(),
-		}
+		ss.queue(ss.opts.Location, fi.Size())
 	}
 }
 
@@ -315,18 +311,22 @@ func (ss *SuperSearch) scanDir(dir string, m gitignore.Matcher) {
 		if fi.IsDir() {
 			ss.scanDir(path, m)
 		} else if fi.Mode().IsRegular() {
-			atomic.AddUint64(&ss.filesSearched, 1)
-			log.Debug("Queuing %v", path)
-			ss.wg.Add(1)
-			ss.searchQueue <- &searchFile{
-				path:  path,
-				index: ss.filesSearched,
-				size:  fi.Size(),
-			}
+			ss.queue(path, fi.Size())
 		}
 	}
 
 	log.Debug("Finished scanning directory %v", dir)
+}
+
+func (ss *SuperSearch) queue(path string, size int64) {
+	atomic.AddUint64(&ss.filesSearched, 1)
+	log.Debug("Queuing %v", path)
+	ss.wg.Add(1)
+	ss.searchQueue <- &searchFile{
+		path:  path,
+		index: ss.filesSearched,
+		size:  size,
+	}
 }
 
 // These run in parallel, taking files off of the searchQueue channel until it
