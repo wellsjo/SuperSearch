@@ -69,7 +69,7 @@ type SuperSearch struct {
 
 	searchQueue chan *searchFile
 	workerQueue chan *searchFile
-	printQueue  chan *printFile
+	// printQueue  chan *printFile
 
 	// Map of file indexes to empty structs, which the printLoop goroutine uses
 	// to determine what to print next
@@ -120,7 +120,7 @@ func New(opts *Options) *SuperSearch {
 
 		searchQueue: make(chan *searchFile),
 		workerQueue: make(chan *searchFile),
-		printQueue:  make(chan *printFile),
+		// printQueue:  make(chan *printFile),
 
 		skipFiles: new(sync.Map),
 
@@ -154,9 +154,9 @@ func (ss *SuperSearch) Run() {
 	close(ss.searchQueue)
 
 	// Wait for printing to finish before exiting
-	ss.wg.Add(1)
-	close(ss.printQueue)
-	ss.wg.Wait()
+	// ss.wg.Add(1)
+	// close(ss.printQueue)
+	// ss.wg.Wait()
 
 	if ss.opts.ShowStats {
 		ss.duration = time.Since(start)
@@ -212,6 +212,7 @@ PROCESSLOOP:
 func (ss *SuperSearch) printLoop() {
 	var (
 		// Mapping of indexes to output strings
+		// TODO make this global syncmap..get around a channel
 		print = make(map[uint64]string)
 
 		// The current print index. The printer will wait until this
@@ -222,29 +223,18 @@ func (ss *SuperSearch) printLoop() {
 	)
 
 	for {
-		p := <-ss.printQueue
-		if p == nil {
-			break
-		}
-
 		output.Reset()
-		print[p.index] = p.output
-
-		// Skip past files without output
-		for {
-			if _, ok := ss.skipFiles.Load(i); ok {
-				i++
-			} else {
-				break
-			}
-		}
 
 		// Add as many outputs together as we can before printing
 		for {
 			out, ok := print[i]
 			if ok {
-				log.Debug("Adding output to string builder")
+				log.DebugGreen("Adding %v to string builder", i)
 				output.WriteString(out)
+				i++
+			}
+			if _, ok := ss.skipFiles.Load(i); ok {
+				log.DebugGreen("Printer skipping %v", i)
 				i++
 			} else {
 				break
@@ -256,7 +246,8 @@ func (ss *SuperSearch) printLoop() {
 		}
 	}
 
-	log.Debug("Print loop done")
+	log.Debug("Print loop done\n%v", print)
+	fmt.Println(*ss.skipFiles)
 	ss.wg.Done()
 }
 
@@ -355,42 +346,47 @@ func (ss *SuperSearch) newWorker() {
 			}
 
 			log.Debug("Worker %v searching %v", workerNum, sf.path)
-			ss.searchFile(sf)
+
+			matchFound := ss.searchFile(sf)
+
+			if !matchFound {
+				ss.skipFiles.Store(sf.index, struct{}{})
+			}
 		}
 
 		log.Debug("Worker %v finished", workerNum)
 	}()
 }
 
-func (ss *SuperSearch) searchFile(sf *searchFile) {
+func (ss *SuperSearch) searchFile(sf *searchFile) bool {
 	defer ss.wg.Done()
 
 	file, err := os.Open(sf.path)
 	if err != nil {
 		log.Debug("Failed to open file %v", sf.path)
-		return
+		return false
 	}
 	defer file.Close()
 
 	buf := make([]byte, sf.size)
 	_, err = file.ReadAt(buf, 0)
 	if err != nil {
-		return
+		return false
 	}
 
 	if isBinary(buf) {
 		log.Debug("Skipping binary file")
-		return
+		return false
 	}
 
 	if ss.isRegex {
-		ss.searchFileRegex(sf, buf)
+		return ss.searchFileRegex(sf, buf)
 	} else {
-		ss.searchFileBoyerMoore(sf, buf)
+		return ss.searchFileBoyerMoore(sf, buf)
 	}
 }
 
-func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) {
+func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) bool {
 
 	var output strings.Builder
 	matchFound := false
@@ -405,7 +401,7 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) {
 
 			// Skip binary files
 			if !matchFound && !utf8.Valid(line) {
-				return
+				return false
 			}
 
 			// We found matches
@@ -445,77 +441,86 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile, buf []byte) {
 
 	if matchFound {
 		output.WriteRune('\n')
-		ss.printQueue <- &printFile{
-			output: output.String(),
-			index:  sf.index,
-		}
-	} else {
-		ss.skipFiles.Store(sf.index, struct{}{})
+		fmt.Print(output.String())
+		// ss.printQueue <- &printFile{
+		// 	output: output.String(),
+		// 	index:  sf.index,
+		// }
+		return true
 	}
+
+	return false
 }
 
-func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) {
+func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile, buf []byte) bool {
 	matches := BoyerMooreSearch(string(buf), ss.opts.Pattern)
 
 	if len(matches) == 0 {
-		ss.skipFiles.Store(sf.index, struct{}{})
-		return
+		return false
+	}
+
+	fName := strings.Replace(sf.path, ss.workDir, "", -1)
+	if fName[0] == '/' {
+		fName = fName[1:]
 	}
 
 	atomic.AddUint64(&ss.numMatches, uint64(len(matches)))
-	log.Debug("Found matches at %v", matches)
+	log.Debug("Found matches at %v in %v", matches, fName)
 
 	var output strings.Builder
-	lastNewline := 0
 	lineNo := 1
 	matchIndex := 0
-	matchFound := false
-	lastIndex := -1
+	printingLine := false
+	lastIndex := 0
+	done := false
 
-	output.WriteString(highlightFile.Sprintf("%v\n", strings.Replace(sf.path, ss.workDir, "", -1)[1:]))
+	output.WriteString(highlightFile.Sprintf("%v\n", fName))
 
 	for i := 0; i < len(buf); i++ {
-		if buf[i] == '\n' {
-			lineNo++
-			lastNewline = i
-
-			if matchFound {
+		if buf[i] == '\n' || i == len(buf)-1 {
+			if printingLine {
 				output.Write(buf[lastIndex:i])
+				if done {
+					break
+				}
 				output.WriteRune('\n')
-				matchFound = false
+				printingLine = false
 			}
+
+			lineNo++
+			lastIndex = i + 1
+		}
+
+		if done {
+			continue
 		}
 
 		if i == matches[matchIndex] {
 
-			log.Debug("Found match at %v %v", i, i-len(ss.opts.Pattern)-1)
-
 			// Print line number, followed by each match
-			output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
+			if !printingLine {
+				output.WriteString(highlightNumber.Sprintf("%v:", lineNo))
+			}
 
-			log.Debug("%v %v %v", lastNewline+1, i-len(ss.opts.Pattern), len(buf))
+			log.DebugGreen("%v %v", lastIndex, i)
+			output.Write(buf[lastIndex:i])
 
-			// fmt.Println(string(buf[lastNewline+1 : i-len(ss.opts.Pattern)]))
-			output.Write(buf[lastNewline+1 : i-len(ss.opts.Pattern)])
-
-			output.WriteString(highlightMatch.Sprint(string(buf[i-len(ss.opts.Pattern) : i])))
+			output.WriteString(highlightMatch.Sprint(string(buf[i : i+len(ss.opts.Pattern)])))
 
 			matchIndex++
 			if matchIndex == len(matches) {
-				break
+				done = true
 			}
 
-			lastIndex = i
-			matchFound = true
+			lastIndex = i + len(ss.opts.Pattern)
+			printingLine = true
 		}
 	}
 
-	output.WriteRune('\n')
+	output.WriteString("\n")
+	fmt.Print(output.String())
 
-	ss.printQueue <- &printFile{
-		output: output.String(),
-		index:  sf.index,
-	}
+	return true
 }
 
 func isBinary(buf []byte) bool {

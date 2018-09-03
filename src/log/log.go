@@ -11,11 +11,18 @@ var (
 	DebugMode bool
 
 	highlightError = color.New(color.FgRed).Add(color.Bold)
+	highlightGreen = color.New(color.FgGreen).Add(color.Bold)
 )
 
 func Debug(a string, s ...interface{}) {
 	if DebugMode {
 		log.Printf(a, s...)
+	}
+}
+
+func DebugGreen(a string, s ...interface{}) {
+	if DebugMode {
+		log.Printf(highlightGreen.Sprintf(a, s...))
 	}
 }
 
