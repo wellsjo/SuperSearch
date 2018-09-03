@@ -97,7 +97,7 @@ func longestCommonSuffix(a, b string) (i int) {
 	return
 }
 
-func (f *stringFinder) findAll(buf string) []int {
+func (f *stringFinder) findAll(buf []byte) []int {
 	matched := false
 	var lastMatch int
 	var bufCount int
@@ -110,7 +110,7 @@ func (f *stringFinder) findAll(buf string) []int {
 			buf = buf[lastMatch:]
 		}
 
-		match = f.next(string(buf))
+		match = f.next(buf)
 
 		if match > -1 {
 			matched = true
@@ -127,7 +127,7 @@ func (f *stringFinder) findAll(buf string) []int {
 
 // next returns the index in text of the first occurrence of the pattern. If
 // the pattern is not found, it returns -1.
-func (f *stringFinder) next(text string) int {
+func (f *stringFinder) next(text []byte) int {
 	i := len(f.pattern) - 1
 	for i < len(text) {
 		// Compare backwards from the end until the first unmatching character.

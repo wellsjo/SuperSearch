@@ -7,16 +7,6 @@ import (
 )
 
 func (ss *SuperSearch) handleMatches(sf *searchFile) {
-	var (
-		output strings.Builder
-
-		lineNo       = 1
-		matchIndex   = 0
-		printingLine = false
-		lastIndex    = 0
-		done         = false
-	)
-
 	atomic.AddUint64(&ss.numMatches, uint64(len(sf.matches)))
 
 	fName := strings.Replace(sf.path, ss.workDir, "", -1)
@@ -24,11 +14,23 @@ func (ss *SuperSearch) handleMatches(sf *searchFile) {
 		fName = fName[1:]
 	}
 
+	var (
+		output strings.Builder
+
+		lineNo       = 1
+		matchIndex   = 0
+		lastIndex    = 0
+		printingLine = false
+		done         = false
+	)
+
 	output.WriteString(highlightFile.Sprintf("%v\n", fName))
 
 	for i := 0; i < len(sf.buf); i++ {
+
 		if sf.buf[i] == '\n' {
 
+			// If a match is found on this line, print the rest of the line
 			if printingLine {
 				output.Write(sf.buf[lastIndex:i])
 				if done {

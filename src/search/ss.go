@@ -449,12 +449,10 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile) bool {
 }
 
 func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile) bool {
-	sf.matches = makeStringFinder(ss.opts.Pattern).findAll(string(sf.buf))
-
+	sf.matches = makeStringFinder(ss.opts.Pattern).findAll(sf.buf)
 	if len(sf.matches) == 0 {
 		return false
 	}
-
 	ss.handleMatches(sf)
 	return true
 }
