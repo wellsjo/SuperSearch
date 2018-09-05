@@ -9,6 +9,10 @@ import (
 func (ss *SuperSearch) handleMatches(sf *searchFile) {
 	atomic.AddUint64(&ss.numMatches, uint64(len(sf.matches)))
 
+	if ss.opts.Quiet {
+		return
+	}
+
 	fName := strings.Replace(sf.path, ss.workDir, "", -1)
 	if fName[0] == '/' {
 		fName = fName[1:]

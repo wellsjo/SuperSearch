@@ -48,6 +48,8 @@ type Options struct {
 	Quiet     bool `short:"q" long:"quiet" description:"Doesn't log any matches, just the results summary"`
 	Debug     bool `short:"D" long:"debug" description:"Show verbose debug information"`
 	ShowStats bool `long:"stats" description:"Show stats (# matches, files searched, time taken, etc.)"`
+
+	bufSize uint
 }
 
 type searchFile struct {
@@ -68,6 +70,7 @@ type SuperSearch struct {
 
 	isRegex      bool
 	searchRegexp *regexp.Regexp
+	searchString *stringFinder
 
 	searchQueue chan *searchFile
 	workerQueue chan *searchFile
@@ -100,6 +103,7 @@ func New(opts *Options) *SuperSearch {
 	}
 
 	var rgx *regexp.Regexp
+	var sf *stringFinder
 	isRgx := false
 	if isRegex(opts.Pattern) {
 		logger.Debug("Using regex search")
@@ -107,6 +111,7 @@ func New(opts *Options) *SuperSearch {
 		isRgx = true
 	} else {
 		logger.Debug("Using Boyer-Moore string search")
+		sf = makeStringFinder(opts.Pattern)
 	}
 
 	wd, err := os.Getwd()
@@ -116,6 +121,7 @@ func New(opts *Options) *SuperSearch {
 
 	return &SuperSearch{
 		searchRegexp: rgx,
+		searchString: sf,
 		isRegex:      isRgx,
 		opts:         opts,
 		workDir:      wd,
@@ -449,7 +455,7 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile) bool {
 }
 
 func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile) bool {
-	sf.matches = makeStringFinder(ss.opts.Pattern).findAll(sf.buf)
+	sf.matches = ss.searchString.findAll(sf.buf)
 	if len(sf.matches) == 0 {
 		return false
 	}

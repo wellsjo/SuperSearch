@@ -105,6 +105,58 @@ func BenchmarkSearchStatsOff(b *testing.B) {
 	}
 }
 
+// func BenchmarkBufferSize0(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:   "fox",
+// 			Location:  testDir,
+// 			Quiet:     true,
+// 			ShowStats: false,
+// 			bufSize:   0,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkBufferSize1(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:   "fox",
+// 			Location:  testDir,
+// 			Quiet:     true,
+// 			ShowStats: false,
+// 			bufSize:   1,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkBufferSize2(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:   "fox",
+// 			Location:  testDir,
+// 			Quiet:     true,
+// 			ShowStats: false,
+// 			bufSize:   2,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
+// func BenchmarkBufferSize4(b *testing.B) {
+// 	for i := 0; i < b.N; i++ {
+// 		s := New(&Options{
+// 			Pattern:   "fox",
+// 			Location:  testDir,
+// 			Quiet:     true,
+// 			ShowStats: false,
+// 			bufSize:   4,
+// 		})
+// 		s.Run()
+// 	}
+// }
+
 // func BenchmarkSearchConcurrencySmall2(b *testing.B) {
 // 	b.Skip()
 // 	for i := 0; i < b.N; i++ {
