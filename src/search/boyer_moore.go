@@ -119,25 +119,6 @@ func (f *stringFinder) findAll(text []byte) []int {
 	return matches
 }
 
-// next returns the index in text of the first occurrence of the pattern. If
-// the pattern is not found, it returns -1.
-func (f *stringFinder) next(text []byte) int {
-	i := len(f.pattern) - 1
-	for i < len(text) {
-		// Compare backwards from the end until the first unmatching character.
-		j := len(f.pattern) - 1
-		for j >= 0 && text[i] == f.pattern[j] {
-			i--
-			j--
-		}
-		if j < 0 {
-			return i + 1 // match
-		}
-		i += max(f.badCharSkip[text[i]], f.goodSuffixSkip[j])
-	}
-	return -1
-}
-
 func max(a, b int) int {
 	if a > b {
 		return a
