@@ -459,6 +459,9 @@ func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile) bool {
 	if len(sf.matches) == 0 {
 		return false
 	}
+	if ss.opts.ShowStats {
+		atomic.AddUint64(&ss.filesMatched, 1)
+	}
 	ss.handleMatches(sf)
 	return true
 }

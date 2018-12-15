@@ -2,6 +2,37 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:7654628b284275da2f31b8b2f6d06a0a513e5095da87efef1c17982d47ca73b7"
+  name = "code.cryptowat.ch/proto"
+  packages = ["markets"]
+  pruneopts = "UT"
+  revision = "ae280bea3a1ef4ddc2d4b087815e399fe00c2456"
+
+[[projects]]
+  branch = "master"
+  digest = "1:88cba486f46027805947b2f99490a95733feacedfeb7de48266f9809d584ff8b"
+  name = "github.com/cryptowatch/proto"
+  packages = [
+    "client",
+    "markets",
+    "stream",
+  ]
+  pruneopts = "UT"
+  revision = "ae280bea3a1ef4ddc2d4b087815e399fe00c2456"
+
+[[projects]]
+  branch = "quotes-demo"
+  digest = "1:6b7b6dc605eb55fe2e9366a2b60cd5155d4185e90f0b584fee17b57abfa04588"
+  name = "github.com/cryptowatch/stream-client-go"
+  packages = [
+    ".",
+    "internal",
+  ]
+  pruneopts = "UT"
+  revision = "17d9fff18984454a57179b2abc70766491e159d6"
+
+[[projects]]
   digest = "1:ffe9824d294da03b391f44e1ae8281281b4afc1bdaa9588c9097785e3af10cec"
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
@@ -18,12 +49,36 @@
   version = "v1.7.0"
 
 [[projects]]
+  digest = "1:97df918963298c287643883209a2c3f642e6593379f97ab400c2a2e219ab647d"
+  name = "github.com/golang/protobuf"
+  packages = ["proto"]
+  pruneopts = "UT"
+  revision = "aa810b61a9c79d51363740d207bb46cf8e620ed5"
+  version = "v1.2.0"
+
+[[projects]]
+  digest = "1:7b5c6e2eeaa9ae5907c391a91c132abfd5c9e8a784a341b5625e750c67e6825d"
+  name = "github.com/gorilla/websocket"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "66b9c49e59c6c48f0ffce28c2d8b8a5678502c6d"
+  version = "v1.4.0"
+
+[[projects]]
   digest = "1:a2cff208d4759f6ba1b1cd228587b0a1869f95f22542ec9cd17fff64430113c7"
   name = "github.com/jessevdk/go-flags"
   packages = ["."]
   pruneopts = "UT"
   revision = "c6ca198ec95c841fdb89fc0de7496fed11ab854e"
   version = "v1.4.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:1261ccace00babbf02bb702e71c85c8e81f65bad7bdb98c12c7a409c14de1d86"
+  name = "github.com/juju/errors"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "22422dad46e14561a0854ad42497a75af9b61909"
 
 [[projects]]
   digest = "1:c658e84ad3916da105a761660dcaeb01e63416c8ec7bc62256a9b411a05fcd67"
@@ -73,14 +128,38 @@
   pruneopts = "UT"
   revision = "1a700e749ce29638d0bbcb531cce1094ea096bd3"
 
+[[projects]]
+  digest = "1:b154eb17b54cec56332bb76d6b5cf1b23f96beaf19468d0da5e94fc737a9093d"
+  name = "golang.org/x/text"
+  packages = [
+    "feature/plural",
+    "internal",
+    "internal/catmsg",
+    "internal/format",
+    "internal/gen",
+    "internal/number",
+    "internal/stringset",
+    "internal/tag",
+    "language",
+    "message",
+    "message/catalog",
+    "unicode/cldr",
+  ]
+  pruneopts = "UT"
+  revision = "f21a4dfb5e38f5895301dc265a8def02365cc3d0"
+  version = "v0.3.0"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/cryptowatch/stream-client-go",
     "github.com/fatih/color",
     "github.com/jessevdk/go-flags",
     "github.com/stretchr/testify/assert",
     "golang.org/x/exp/mmap",
+    "golang.org/x/text/language",
+    "golang.org/x/text/message",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
