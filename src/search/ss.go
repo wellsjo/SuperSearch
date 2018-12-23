@@ -70,7 +70,7 @@ type SuperSearch struct {
 
 	isRegex      bool
 	searchRegexp *regexp.Regexp
-	searchString *stringFinder
+	stringFinder *stringFinder
 
 	searchQueue chan *searchFile
 	workerQueue chan *searchFile
@@ -121,7 +121,7 @@ func New(opts *Options) *SuperSearch {
 
 	return &SuperSearch{
 		searchRegexp: rgx,
-		searchString: sf,
+		stringFinder: sf,
 		isRegex:      isRgx,
 		opts:         opts,
 		workDir:      wd,
@@ -399,7 +399,6 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile) bool {
 	lastIndex := 0
 	lineNo := 1
 
-	// TODO regex whole file instead of by line?
 	for i := 0; i < len(sf.buf); i++ {
 		if sf.buf[i] == '\n' {
 			var line = sf.buf[lastIndex:i]
@@ -455,7 +454,7 @@ func (ss *SuperSearch) searchFileRegex(sf *searchFile) bool {
 }
 
 func (ss *SuperSearch) searchFileBoyerMoore(sf *searchFile) bool {
-	sf.matches = ss.searchString.findAll(sf.buf)
+	sf.matches = ss.stringFinder.findAll(sf.buf)
 	if len(sf.matches) == 0 {
 		return false
 	}
